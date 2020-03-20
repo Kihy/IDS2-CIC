@@ -100,7 +100,7 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
         PackNumericFeatures(field_names, num_classes))
     packed_val_data = val.map(PackNumericFeatures(field_names, num_classes))
 
-    example_batch, labels_batch = next(iter(packed_train_data))
+    # example_batch, labels_batch = next(iter(packed_train_data))
 
     min = np.array(metadata["col_min"][:-1])
     max = np.array(metadata["col_max"][:-1])
@@ -138,5 +138,5 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
               validation_data=packed_val_data,
               validation_steps=metadata["num_val"]//batch_size
               )
-    # tf.saved_model.save(model, save_path)
-    model.save(save_path)
+    tf.saved_model.save(model, save_path)
+    # model.save(save_path)

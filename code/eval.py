@@ -13,20 +13,23 @@ from tensorflow.keras.layers import (Dense, Embedding, Flatten, Input,
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.utils import plot_model
 from matplotlib.colors import to_hex, Normalize
+from train import PackNumericFeatures
+import json
+from input_utils import get_field_names
 matplotlib.use('Agg')
 
-def evaluate_network(dataset_name, model_path, output_name, embed=False, batch_size=1024):
+def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
     """
     evaluates the a model. generates classification report (including precision recall and accuracy) and a graphical
     version of the classification report. classification report has name output_name.txt and
-    the heatmap have name output_name_heatmap.png
+    the heatmap have name output_name_heatmap.png.
+    The evaluation takes place on the first batch of the test set.
 
     Args:
         dataset_name (string): the name of the dataset.
         model_path (string): path to some saved model.
         output_name (string): name of the output file JUST THE NAME NOT PATH. the
         path is experiment/reports/
-        embed (boolean): whether the network is embedded. Defaults to False.
 
     Returns:
         None: the classification report and its graphical representation is saved
@@ -34,32 +37,39 @@ def evaluate_network(dataset_name, model_path, output_name, embed=False, batch_s
 
     """
     test = load_dataset(
-        dataset_name, prefix=["test"],label_name="Label", batch_size=batch_size)
-
-    model = load_model(model_path)
+        dataset_name, sets=["test"], label_name="Label", batch_size=batch_size)[0]
 
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
 
+    field_names = get_field_names("field_names.csv")[:-1]
+    packed_test=test.map(PackNumericFeatures(field_names, metadata["num_classes"]))
+
+    print("evaluated on batch_size:",batch_size)
+
+    features, labels = next(iter(packed_test))
+
+    model = load_model(model_path)
+
     # generate predictions and decode them
-    y_pred = model.predict(test, steps=1)
+    y_pred = model.predict(features, steps=1)
+
 
     y_pred = np.argmax(y_pred, axis=1)
-
-    y_true=list(test[0][1])
+    labels=np.argmax(labels, axis=1)
 
     attack_label = read_maps(
-        "../data/{}/maps/attack_type.csv".format(dataset_name))
+        "../data/{}/maps/attack label.csv".format(dataset_name))
 
     # draws a heat_map of the classification report
-    report = classification_report(y_true, y_pred, target_names=attack_label, labels=list(
+    report = classification_report(labels, y_pred, target_names=attack_label, labels=list(
         range(len(attack_label))), output_dict=True)
     draw_heatmap(report, output_name + "_heatmap")
 
     # save a text version of the report as well
     report = classification_report(
-        y_true, y_pred, target_names=attack_label, labels=list(range(len(attack_label))))
+        labels, y_pred, target_names=attack_label, labels=list(range(len(attack_label))))
     report_file = open("../experiment/reports/{}.txt".format(output_name), "w")
     report_file.write(report)
     report_file.close()
@@ -87,7 +97,7 @@ def draw_heatmap(report, filename):
         heat_map.append(np.array(list(report[key].values())))
 
     heat_map = np.array(heat_map)
-    fig, ax = plt.subplots(figsize=(10, 30))
+    fig, ax = plt.subplots(figsize=(9, len(samples)*2))
 
     m = np.zeros_like(heat_map)
     m[:, 3] = 1
