@@ -89,12 +89,11 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
     train, val = load_dataset(
         dataset_name, sets=["train", "val"], label_name="Label", batch_size=batch_size)
 
-    field_names = get_field_names("field_names.csv")[:-1]
-
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
     num_classes = metadata["num_classes"]
+    field_names=metadata["field_names"]
 
     packed_train_data = train.map(
         PackNumericFeatures(field_names, num_classes))

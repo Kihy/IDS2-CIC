@@ -15,7 +15,6 @@ from tensorflow.keras.utils import plot_model
 from matplotlib.colors import to_hex, Normalize
 from train import PackNumericFeatures
 import json
-from input_utils import get_field_names
 matplotlib.use('Agg')
 
 def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
@@ -43,7 +42,7 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
         metadata = json.load(file)
 
 
-    field_names = get_field_names("field_names.csv")[:-1]
+    field_names = metadata["field_names"]
     packed_test=test.map(PackNumericFeatures(field_names, metadata["num_classes"]))
 
     print("evaluated on batch_size:",batch_size)

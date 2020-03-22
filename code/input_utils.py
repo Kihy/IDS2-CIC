@@ -217,6 +217,11 @@ class DataReader:
         metadata["col_min"] = dataframe.min(axis=0).tolist()
         metadata["col_mean"] = dataframe.mean(axis=0).tolist()
         metadata["col_std"] = dataframe.std(axis=0).tolist()
+        metadata["field_names"]=dataframe.columns.tolist()
+        # dtype object not serializable so turn into string first
+        dtypes=[str(x) for x in dataframe.dtypes]
+        metadata["dtypes"]=dtypes
+        
 
         # create dataset folder if it doesnt exist
         if not os.path.exists("../data/{}".format(self.dataset_name)):
@@ -247,7 +252,7 @@ class DataReader:
                                                  "attack label"), attack_label)
 
         with open('../data/{}/metadata.txt'.format(self.dataset_name), 'w') as outfile:
-            json.dump(metadata, outfile)
+            json.dump(metadata, outfile, indent=True)
 
     def dataset_statistics(self):
         counts_file = open(
@@ -310,8 +315,6 @@ class DataReader:
             all_data = all_data[all_data["Label"].isin(self.attack_type)]
 
         # convert label to categorical
-        cat_columns = all_data.select_dtypes(['object']).columns
-
         label_map = list(all_data["Label"].astype(
             "category").cat.categories)
         all_data["Label"] = all_data["Label"].astype(

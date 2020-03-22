@@ -10,5 +10,5 @@ if __name__ == '__main__':
     # dr.write_to_csv()
     # dr.dataset_statistics()
     # dr.start()
-    # train_normal_network(dataset_name, model_path, batch_size=1024, epochs=10)
+    train_normal_network(dataset_name, model_path, batch_size=1024, epochs=10)
     evaluate_network(dataset_name, model_path, "3layer_top3", batch_size=1024)
