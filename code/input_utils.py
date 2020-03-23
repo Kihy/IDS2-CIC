@@ -17,6 +17,20 @@ from tensorflow.keras.utils import to_categorical
 matplotlib.use('Agg')
 pd.options.mode.use_inf_as_na = True
 
+class PackNumericFeatures(object):
+    def __init__(self, names, num_classes=None):
+        self.names = names
+        self.num_classes = num_classes
+
+    def __call__(self, features, labels):
+        numeric_features = [features.pop(name) for name in self.names]
+        numeric_features = [tf.cast(feat, tf.float32)
+                            for feat in numeric_features]
+        numeric_features = tf.stack(numeric_features, axis=-1)
+        features['numeric'] = numeric_features
+        if self.num_classes!=None:
+            labels=tf.one_hot(labels, self.num_classes)
+        return features, labels 
 
 def read_maps(filename):
     """

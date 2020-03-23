@@ -30,19 +30,7 @@ def show_batch(dataset):
             print("{:20s}: {}".format(key, value.numpy()))
 
 
-class PackNumericFeatures(object):
-    def __init__(self, names, num_classes):
-        self.names = names
-        self.num_classes = num_classes
 
-    def __call__(self, features, labels):
-        numeric_features = [features.pop(name) for name in self.names]
-        numeric_features = [tf.cast(feat, tf.float32)
-                            for feat in numeric_features]
-        numeric_features = tf.stack(numeric_features, axis=-1)
-        features['numeric'] = numeric_features
-
-        return features, tf.one_hot(labels, self.num_classes)
 
 
 
@@ -93,7 +81,7 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
         metadata = json.load(file)
 
     num_classes = metadata["num_classes"]
-    field_names=metadata["field_names"]
+    field_names=metadata["field_names"][:-1]
 
     packed_train_data = train.map(
         PackNumericFeatures(field_names, num_classes))
@@ -108,7 +96,7 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
     numeric_column = tf.feature_column.numeric_column(
         'numeric', normalizer_fn=normalizer, shape=(78,))
     numeric_columns = [numeric_column]
-    numeric_layer = tf.keras.layers.DenseFeatures(numeric_columns)
+    numeric_layer = tf.keras.layers.DenseFeatures(numeric_columns, name='scaler')
 
     inputs = {
         'numeric': tf.keras.layers.Input(name='numeric', shape=(78,), dtype='float32')
