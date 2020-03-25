@@ -94,12 +94,12 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
 
     normalizer = min_max_scaler_gen(min, max)
     numeric_column = tf.feature_column.numeric_column(
-        'numeric', normalizer_fn=normalizer, shape=(78,))
+        'numeric', normalizer_fn=normalizer, shape=(77,))
     numeric_columns = [numeric_column]
     numeric_layer = tf.keras.layers.DenseFeatures(numeric_columns, name='scaler')
 
     inputs = {
-        'numeric': tf.keras.layers.Input(name='numeric', shape=(78,), dtype='float32')
+        'numeric': tf.keras.layers.Input(name='numeric', shape=(77,), dtype='float32')
     }
 
     dense_input = numeric_layer(inputs)

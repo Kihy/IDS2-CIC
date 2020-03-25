@@ -42,33 +42,35 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
         metadata = json.load(file)
 
 
-    field_names = metadata["field_names"]
+    field_names = metadata["field_names"][:-1]
     packed_test=test.map(PackNumericFeatures(field_names, metadata["num_classes"]))
 
     print("evaluated on batch_size:",batch_size)
 
-    features, labels = next(iter(packed_test))
-
     model = load_model(model_path)
+    y_pred_all=[]
+    labels_all=[]
+    for features, labels in packed_test.take(metadata["num_test"]//batch_size):
 
-    # generate predictions and decode them
-    y_pred = model.predict(features, steps=1)
+        # generate predictions and decode them
+        y_pred = model.predict(features, steps=1)
 
-
-    y_pred = np.argmax(y_pred, axis=1)
-    labels=np.argmax(labels, axis=1)
+        y_pred = np.argmax(y_pred, axis=1)
+        labels=np.argmax(labels, axis=1)
+        y_pred_all=np.concatenate((y_pred_all,y_pred))
+        labels_all=np.concatenate((labels_all,labels))
 
     attack_label = read_maps(
         "../data/{}/maps/attack label.csv".format(dataset_name))
 
     # draws a heat_map of the classification report
-    report = classification_report(labels, y_pred, target_names=attack_label, labels=list(
+    report = classification_report(labels_all.flatten(), y_pred_all.flatten(), target_names=attack_label, labels=list(
         range(len(attack_label))), output_dict=True)
     draw_heatmap(report, output_name + "_heatmap")
 
     # save a text version of the report as well
     report = classification_report(
-        labels, y_pred, target_names=attack_label, labels=list(range(len(attack_label))))
+        labels_all.flatten(), y_pred_all.flatten(), target_names=attack_label, labels=list(range(len(attack_label))))
     report_file = open("../experiment/reports/{}.txt".format(output_name), "w")
     report_file.write(report)
     report_file.close()

@@ -30,7 +30,7 @@ class PackNumericFeatures(object):
         features['numeric'] = numeric_features
         if self.num_classes!=None:
             labels=tf.one_hot(labels, self.num_classes)
-        return features, labels 
+        return features, labels
 
 def read_maps(filename):
     """
@@ -182,6 +182,44 @@ def split_dataframe(df, split_percentage, random_state=0):
         df, test_size=split_percentage, random_state=random_state)
     return df1, df2
 
+def flow_to_ml_converter(data_directory):
+    map_file=open("../experiment/column_map.csv")
+    dict={}
+    for i in map_file.readlines():
+        key, value=i.rstrip().split(",")
+        if value=="same":
+            dict[key]=key
+        elif value=="None":
+            dict[key]="remove"
+        else:
+            dict[key]=value
+    map_file.close()
+    for file in os.listdir(data_directory):
+        if file.endswith(".csv"):
+            metadata={}
+            df = pd.read_csv(os.path.join(data_directory, file), header=0, encoding="utf-8")
+            df=df.rename(columns=dict)
+            df=df.drop(columns=['remove'])
+            df.to_csv("../experiment/attack_pcap/{}".format(file),index=False)
+            metadata["field_names"]=df.columns.tolist()
+            metadata["num_samples"]=len(df.index)
+            with open('../experiment/attack_pcap/metadata_{}'.format(file), 'w') as outfile:
+                json.dump(metadata, outfile, indent=True)
+
+def vis_original_input(filename,attack_type):
+    with open(filename) as file:
+        p=[]
+        for line in file.readlines()[1:]:
+            attack=line.rstrip().split(",")[-1]
+            if attack in attack_type:
+                p.append(attack)
+        print(len(p))
+        fig, ax = plt.subplots(figsize=(len(p)//2000,5))
+        ax.plot(p)
+        fig.tight_layout()
+        fig.savefig("../experiment/attack_pcap/real_attack.png")
+
+
 
 class DataReader:
     def __init__(self, data_directory, num_features, train_test_split, test_val_split, attack_type=None, dataset_name=None):
@@ -235,7 +273,7 @@ class DataReader:
         # dtype object not serializable so turn into string first
         dtypes=[str(x) for x in dataframe.dtypes]
         metadata["dtypes"]=dtypes
-        
+
 
         # create dataset folder if it doesnt exist
         if not os.path.exists("../data/{}".format(self.dataset_name)):
@@ -323,6 +361,11 @@ class DataReader:
 
         # some headers have spaces in front
         all_data = all_data.rename(columns=lambda x: x.lstrip())
+
+        # drop duplicate since duplicate columns ends with .n
+        for colname in all_data.columns:
+            if colname[-1].isdigit():
+                all_data=all_data.drop([colname],axis=1)
 
         # filter attacks
         if self.attack_type is not None:
