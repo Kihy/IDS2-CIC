@@ -182,8 +182,18 @@ def split_dataframe(df, split_percentage, random_state=0):
         df, test_size=split_percentage, random_state=random_state)
     return df1, df2
 
-def flow_to_ml_converter(data_directory):
-    map_file=open("../experiment/column_map.csv")
+def get_column_map(path):
+    """
+    get the column mapping from raw extracted data to ml data.
+
+    Args:
+        path (string): path to mapping file
+
+    Returns:
+        type: Description of returned object.
+
+    """
+    map_file=open(path)
     dict={}
     for i in map_file.readlines():
         key, value=i.rstrip().split(",")
@@ -194,6 +204,23 @@ def flow_to_ml_converter(data_directory):
         else:
             dict[key]=value
     map_file.close()
+    return dict
+
+
+def flow_to_ml_converter(data_directory, column_map_path):
+    """
+    converts raw extracted data(flows) to machine learning format, also produces a
+    metadata file with number of samples and field names
+
+    Args:
+        data_directory (string): directory containing raw data flows.
+        column_map_path (string): path to column mapping file.
+
+    Returns:
+        None: converted file and metadata file is stored at experiment/attack_pcap/.
+
+    """
+    dict=get_column_map(column_map_path)
     for file in os.listdir(data_directory):
         if file.endswith(".csv"):
             metadata={}
@@ -206,18 +233,6 @@ def flow_to_ml_converter(data_directory):
             with open('../experiment/attack_pcap/metadata_{}'.format(file), 'w') as outfile:
                 json.dump(metadata, outfile, indent=True)
 
-def vis_original_input(filename,attack_type):
-    with open(filename) as file:
-        p=[]
-        for line in file.readlines()[1:]:
-            attack=line.rstrip().split(",")[-1]
-            if attack in attack_type:
-                p.append(attack)
-        print(len(p))
-        fig, ax = plt.subplots(figsize=(len(p)//2000,5))
-        ax.plot(p)
-        fig.tight_layout()
-        fig.savefig("../experiment/attack_pcap/real_attack.png")
 
 
 
@@ -379,7 +394,7 @@ class DataReader:
 
         # remove negative and nan values
         all_data[all_data < 0] = np.nan
-        all_data = all_data.dropna()
+        all_data = all_data.fillna(0)
 
         return all_data, label_map
 
