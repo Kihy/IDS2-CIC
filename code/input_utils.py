@@ -29,6 +29,7 @@ class PackNumericFeatures(object):
         numeric_features = tf.stack(numeric_features, axis=-1)
         features['numeric'] = numeric_features
         if self.num_classes!=None:
+            print(labels)
             labels=tf.one_hot(labels, self.num_classes)
         return features, labels
 
@@ -54,7 +55,7 @@ def read_maps(filename):
 
 def check_float(x):
     """
-    convert value to float. used because column 14 and 15 have Infinity as its value.
+    convert value to float. used because column 14 and 15 have Infinity, Nan, '' as its value.
 
     Args:
         x (string): input `x`.
@@ -63,6 +64,8 @@ def check_float(x):
         float: float version of x.
 
     """
+    if x=="":
+        x=0
     x = float(x)
     return x
 
@@ -102,7 +105,7 @@ def get_field_names(filename):
     return field_names
 
 
-def load_dataset(dataset_name, sets=["train", "test", "val"], label_name="Label", batch_size=128):
+def load_dataset(dataset_name, sets=["train", "test", "val"],**kwargs):
     """returns various samples of datasets. the samples are defined by prefix_suffix,
     e.g. train_x
 
@@ -121,8 +124,7 @@ def load_dataset(dataset_name, sets=["train", "test", "val"], label_name="Label"
         print("loading sample set:", set)
 
         data = tf.data.experimental.make_csv_dataset(
-            "../data/{}/{}.csv".format(dataset_name, set),
-            batch_size=batch_size, label_name=label_name)
+            "../data/{}/{}.csv".format(dataset_name, set), **kwargs)
 
         return_sets.append(data)
     return return_sets
@@ -207,7 +209,7 @@ def get_column_map(path):
     return dict
 
 
-def flow_to_ml_converter(data_directory, column_map_path):
+def format_converter(data_directory, column_map_path):
     """
     converts raw extracted data(flows) to machine learning format, also produces a
     metadata file with number of samples and field names
@@ -223,21 +225,23 @@ def flow_to_ml_converter(data_directory, column_map_path):
     dict=get_column_map(column_map_path)
     for file in os.listdir(data_directory):
         if file.endswith(".csv"):
+            print("processing file: {}".format(file))
             metadata={}
             df = pd.read_csv(os.path.join(data_directory, file), header=0, encoding="utf-8")
             df=df.rename(columns=dict)
             df=df.drop(columns=['remove'])
-            df.to_csv("../experiment/attack_pcap/{}".format(file),index=False)
+
             metadata["field_names"]=df.columns.tolist()
             metadata["num_samples"]=len(df.index)
             with open('../experiment/attack_pcap/metadata_{}'.format(file), 'w') as outfile:
                 json.dump(metadata, outfile, indent=True)
+            df.to_csv("../experiment/attack_pcap/{}".format(file),index=False)
 
 
 
 
 class DataReader:
-    def __init__(self, data_directory, num_features, train_test_split, test_val_split, attack_type=None, dataset_name=None):
+    def __init__(self, data_directory, train_test_split, test_val_split, files=[], ignore=False, attack_type=None, dataset_name=None):
         """initializes the data reader for CIC-IDS datasets.
 
         Args:
@@ -261,7 +265,9 @@ class DataReader:
         self.train_test_split = train_test_split
         self.test_val_split = test_val_split
         self.attack_type = attack_type
-        self.num_features = num_features
+        self.files=files
+        self.ignore=ignore
+
 
     def generate_dataframes(self):
         """
@@ -367,11 +373,15 @@ class DataReader:
         # get all files under data_directory
         for file in os.listdir(self.data_directory):
             # ignore .gitignore
-            if file.endswith(".csv"):
-                df = pd.read_csv(os.path.join(
-                    self.data_directory, file), header=0,
-                    converters={14: check_float, 15: check_float}, encoding="utf-8")
-                datasets.append(df)
+
+            if file.endswith(".csv") and ((file in self.files) == self.ignore):
+                print("processing file",file)
+                df_chunk = pd.read_csv(os.path.join(
+                    self.data_directory, file), header=0, chunksize=100000,
+                    converters={14:check_float, 15:check_float }, encoding="utf-8")
+                datasets+=df_chunk
+
+        print("finished loading datasets")
         all_data = pd.concat(datasets)
 
         # some headers have spaces in front
@@ -387,10 +397,9 @@ class DataReader:
             all_data = all_data[all_data["Label"].isin(self.attack_type)]
 
         # convert label to categorical
-        label_map = list(all_data["Label"].astype(
-            "category").cat.categories)
-        all_data["Label"] = all_data["Label"].astype(
-            "category").cat.codes
+        label_map = list(all_data["Label"].astype("category").cat.categories)
+        all_data["Label"] = all_data["Label"].astype("category").cat.codes
+        all_data["Label"] = all_data["Label"].astype("uint8")
 
         # remove negative and nan values
         all_data[all_data < 0] = np.nan

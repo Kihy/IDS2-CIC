@@ -74,17 +74,19 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
         None: the model is saved at save_path.
 
     """
-    train, val = load_dataset(
-        dataset_name, sets=["train", "val"], label_name="Label", batch_size=batch_size)
 
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
+    print(metadata["dtypes"])
+    train, val = load_dataset(
+        dataset_name, sets=["train", "val"],column_defaults=metadata["dtypes"],
+        label_name="Label", batch_size=batch_size)
 
     num_classes = metadata["num_classes"]
     field_names=metadata["field_names"][:-1]
 
     packed_train_data = train.map(
-        PackNumericFeatures(field_names, num_classes))
+        PackNumericFeatures(field_names,num_classes))
     packed_val_data = val.map(PackNumericFeatures(field_names, num_classes))
 
     # example_batch, labels_batch = next(iter(packed_train_data))
