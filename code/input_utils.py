@@ -215,7 +215,7 @@ def format_converter(data_directory, column_map_path):
     metadata file with number of samples and field names
 
     Args:
-        data_directory (string): directory containing raw data flows.
+        data_directory (string): directory containing raw data flows or file
         column_map_path (string): path to column mapping file.
 
     Returns:
@@ -223,21 +223,38 @@ def format_converter(data_directory, column_map_path):
 
     """
     dict=get_column_map(column_map_path)
-    for file in os.listdir(data_directory):
-        if file.endswith(".csv"):
-            print("processing file: {}".format(file))
-            metadata={}
-            df = pd.read_csv(os.path.join(data_directory, file), header=0, encoding="utf-8")
-            df=df.rename(columns=dict)
-            df=df.drop(columns=['remove'])
-
-            metadata["field_names"]=df.columns.tolist()
-            metadata["num_samples"]=len(df.index)
-            with open('../experiment/attack_pcap/metadata_{}'.format(file), 'w') as outfile:
-                json.dump(metadata, outfile, indent=True)
-            df.to_csv("../experiment/attack_pcap/{}".format(file),index=False)
+    if os.path.isfile(data_directory):
+        convert_file(data_directory, dict)
+    else:
+        for file in os.listdir(data_directory):
+            if file.endswith(".csv"):
+                convert_file(os.path.join(data_directory, file), dict)
 
 
+def convert_file(file, col_map):
+    """
+    converts single file from Flow format to ml format.
+
+    Args:
+        file (string): path to file.
+        col_map (dict): column name map.
+
+    Returns:
+        None: output files saved at experiment/attack_pcap.
+
+    """
+    print("processing file: {}".format(file))
+    metadata={}
+    df = pd.read_csv(file, header=0, encoding="utf-8")
+    df=df.rename(columns=col_map)
+    df=df.drop(columns=['remove'])
+
+    metadata["field_names"]=df.columns.tolist()
+    metadata["num_samples"]=len(df.index)
+    file_name=file.split("/")[-1]
+    with open('../experiment/attack_pcap/metadata_{}'.format(file_name), 'w') as outfile:
+        json.dump(metadata, outfile, indent=True)
+    df.to_csv("../experiment/attack_pcap/{}".format(file_name),index=False)
 
 
 class DataReader:
@@ -248,6 +265,9 @@ class DataReader:
             dataset_name (string): name of the dataset generated, the dataset will be saved in ../data/{dataset_name}
             data_directory (string list): list of locations to look for csv data.
             num_features (int): number of features excluding the label
+            files(list): a list of file to process, depends on ignore
+            ignore(boolean): if set to True, only the files in the files list are processed.
+            if set to False, the files in files are ignored. to process all files set files to [] and ignore to False.
             train_test_split (float): percentage of all files in test.
             test_val_split (float): percentage of test files in validation.
             attack_type (string list): list of attack_types to include
