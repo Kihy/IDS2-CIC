@@ -127,6 +127,7 @@ def load_dataset(dataset_name, sets=["train", "test", "val"],**kwargs):
             "../data/{}/{}.csv".format(dataset_name, set), **kwargs)
 
         return_sets.append(data)
+    print("finished loading dataset")
     return return_sets
 
 
@@ -209,7 +210,7 @@ def get_column_map(path):
     return dict
 
 
-def format_converter(data_directory, column_map_path):
+def format_converter(data_directory, column_map_path, **kwargs):
     """
     converts raw extracted data(flows) to machine learning format, also produces a
     metadata file with number of samples and field names
@@ -228,10 +229,10 @@ def format_converter(data_directory, column_map_path):
     else:
         for file in os.listdir(data_directory):
             if file.endswith(".csv"):
-                convert_file(os.path.join(data_directory, file), dict)
+                convert_file(os.path.join(data_directory, file), dict, **kwargs)
 
 
-def convert_file(file, col_map):
+def convert_file(file, col_map,out_dir,metadata=False, use_filename_as_label=False):
     """
     converts single file from Flow format to ml format.
 
@@ -249,12 +250,17 @@ def convert_file(file, col_map):
     df=df.rename(columns=col_map)
     df=df.drop(columns=['remove'])
 
-    metadata["field_names"]=df.columns.tolist()
-    metadata["num_samples"]=len(df.index)
     file_name=file.split("/")[-1]
-    with open('../experiment/attack_pcap/metadata_{}'.format(file_name), 'w') as outfile:
-        json.dump(metadata, outfile, indent=True)
-    df.to_csv("../experiment/attack_pcap/{}".format(file_name),index=False)
+
+    if use_filename_as_label:
+        df=df.replace("No Label",file_name.split(".")[0])
+
+    if metadata:
+        metadata["field_names"]=df.columns.tolist()
+        metadata["num_samples"]=len(df.index)
+        with open('{}metadata_{}'.format(out_dir,file_name), 'w') as outfile:
+            json.dump(metadata, outfile, indent=True)
+    df.to_csv("{}{}".format(out_dir,file_name),index=False)
 
 
 class DataReader:
@@ -419,7 +425,7 @@ class DataReader:
         # convert label to categorical
         label_map = list(all_data["Label"].astype("category").cat.categories)
         all_data["Label"] = all_data["Label"].astype("category").cat.codes
-        all_data["Label"] = all_data["Label"].astype("uint8")
+        all_data["Label"] = all_data["Label"].astype("int32")
 
         # remove negative and nan values
         all_data[all_data < 0] = np.nan

@@ -30,13 +30,13 @@ def find_theta(metadata, percent_theta):
         array: the theta values for each feature.
 
     """
-        
+
     data_range = np.array(metadata["col_max"])-np.array(metadata["col_min"])
-    
+
     # -1 so we dont include label field
     num_fields=len(metadata["field_names"])-1
     thetas = np.zeros((num_fields,))
-     
+
     for index in range(num_fields):
         if data_range[index] == 0:
             thetas[index] = 0
@@ -53,9 +53,9 @@ def find_theta(metadata, percent_theta):
             if theta == 0:
                 theta = 1 / data_range[index]
             thetas[index] = theta
-        
+
     return thetas
-    
+
 def generate_forward_derivative(input_sample, model, num_classes):
     """calculates the forward derivative of model with respect to input for each
     output classes
@@ -224,7 +224,7 @@ def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, 
 def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01):
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
-    
+
     batch_size=1
     # remove label field
     field_names=metadata["field_names"][:-1]
@@ -234,35 +234,39 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
     packed_data = data.map(PackNumericFeatures(field_names))
     # take 1
     # sample, label = next(iter(packed_val_data))
-    
+
+    print("loading model")
     model = tf.keras.models.load_model(model_path)
 
+    print("finding theta")
     thetas = find_theta(metadata, theta)
 
+    print("genrating attack label map")
     maps = genfromtxt(
         "../data/{}/maps/attack label.csv".format(dataset_name), delimiter=',')
+
+    print("creating dataframes")
     adv_col_names=metadata["field_names"]+["Iterations", "Adv Label"]
     adv_df=pd.DataFrame(columns=adv_col_names)
     pert_df=pd.DataFrame(columns=field_names)
     scaler=model.get_layer("scaler")
+
+    print("starting generation")
     for sample, label in packed_data.take(num_samples):
-        
-        # fixes flags
         jsma_sample, num_iter, pred= jsma_attack(sample["numeric"],
                            target_class, model, thetas, num_classes, max_iter=200)
-        
+
         row=jsma_sample.numpy()
         row=np.append(row, [label.numpy()[0], num_iter, pred])
         adv_df=adv_df.append(pd.Series(row, index=adv_col_names),ignore_index=True)
-        
+
         pert=jsma_sample.numpy()-sample["numeric"].numpy()
-        scaled_pert=scaler({'numeric':pert})
-        pert_df=pert_df.append(pd.Series(scaled_pert.numpy()[0], index=field_names), ignore_index=True)
+        pert_df=pert_df.append(pd.Series(pert[0], index=field_names), ignore_index=True)
         # scaled_sample=scaler(sample)
         # jsma={'numeric':jsma_sample}
         # scaled_jsma=scaler(jsma)
         # draw_perturbation(scaled_sample, scaled_jsma, "../experiment/pert_vis/test.png", field_names)
-    
+    print("finished all JSMA samples")
     adv_df.to_csv("../experiment/adv_data/{}_{}.csv".format(dataset_name,set_name), index=False)
     pert_df.to_csv("../experiment/adv_data/{}_{}_pert.csv".format(dataset_name,set_name), index=False)
     # draw distributions of each attribute for all data
@@ -273,7 +277,7 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
 
 def tensor_to_numpy(x):
     return x.numpy()[0]
-    
+
 def draw_perturbation(ori, adv, output_file_name, field_names):
     """
     draws the perturbation for single sample
@@ -288,8 +292,8 @@ def draw_perturbation(ori, adv, output_file_name, field_names):
         None: draws bar plot at output_file_name.
 
     """
-    
-    
+
+
     ori=tensor_to_numpy(ori)
     adv=tensor_to_numpy(adv)
 
@@ -298,7 +302,7 @@ def draw_perturbation(ori, adv, output_file_name, field_names):
     min = np.minimum(ori, adv)
     y_pos = list(range(diff.shape[0]))
     colour_map = {-1: 'r', 1: 'g', 0: 'b'}
-    
+
     f = plt.figure(figsize=(16, 9))
     plt.bar(y_pos, min)
     plt.bar(y_pos, np.abs(diff), color=[
