@@ -14,17 +14,21 @@ import json
 from input_utils import load_dataset
 matplotlib.use('Agg')
 
-def find_theta(metadata, percent_theta):
+def find_theta(metadata, percent_theta, fixed=[], scale=True):
     """
     finding the theta used in adversarial perturbation, as different data types
     handle different different theta. For symbolic data theta is set to difference between each of
     its level (e.g. for boolean attribute theta is 1). For continuous data it is set to
     percent_theta. For discrete data it changes by percent_theta of the range rounded evenly to
     nearest integer value before scaling, if data_range is too small treat like symbolic data.
+    If fixed is specified, the theta at that index is set to 0
+    If scale, theta is calculated between range 0 and 1, otherwise it is between col_min and col_max
 
     Args:
         metadata (dictionary): metadata for the dataset.
         percent_theta (float): how much continuous attribute change as percentage (0~1).
+        fixed (int list): index of feature to be fixed
+        scale (boolean): whether theta is scaled.
 
     Returns:
         array: the theta values for each feature.
@@ -38,13 +42,13 @@ def find_theta(metadata, percent_theta):
     thetas = np.zeros((num_fields,))
 
     for index in range(num_fields):
-        if data_range[index] == 0:
+        if data_range[index] == 0 or index in fixed:
             thetas[index] = 0
             continue
         type = metadata["dtypes"][index]
         # if continous theta is set to percent theta
         if type.startswith("float"):
-            thetas[index] = percent_theta
+            theta = percent_theta
         # if discrete theta is set to percent theta of the data range rounded evenly
         if type.startswith("int"):
             theta = np.around(
@@ -52,7 +56,10 @@ def find_theta(metadata, percent_theta):
             # in range is too small, treat like symbolic data
             if theta == 0:
                 theta = 1 / data_range[index]
-            thetas[index] = theta
+        #without scaling, multiply by data_range
+        if not scale:
+            theta*=data_range[index]
+        thetas[index] = theta
 
     return thetas
 
@@ -124,7 +131,7 @@ def generate_saliency_map(gradients, target, map_type="increase"):
     return saliency_map
 
 
-def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, fixed=[], embed=False):
+def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100, scale=True):
     """applies jacobian saliency map attack on input_sample
 
     Args:
@@ -132,8 +139,9 @@ def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, 
         target (int): the target class index.
         model (nn network): the neural network to be attacked.
         thetas (array): how much perturbation to add in each step for each attribute.
+        metadata (dict): metadata of dataset
         max_iter (int): maximum number of iterations to carry out.
-        fixed (array): the indices of features that cannot be altered
+        scale (boolean): same as scale in find_theta function.
 
     Returns:
         array, int, int: the modified adversarial sample, number of iterations taken, prediction outcome
@@ -151,18 +159,20 @@ def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, 
             break
 
         # find forward gradient for each output class
-        gradients = generate_forward_derivative(x_adv, model, num_classes)
+        gradients = generate_forward_derivative(x_adv, model, metadata["num_classes"])
 
         # filter out features that cannot be increased based on current value
-        if embed:
-            field = x_adv[-1].numpy()
-        else:
-            field = x_adv.numpy()
+        field = x_adv.numpy()
 
-        # make sure it does not increase more than 1
-        inc_mask = (field <= 1 - thetas).astype(int)
-        # make sure it would not be less than 0
-        dec_mask = (field >= thetas).astype(int)
+        # make sure it does not increase more than 1 or col_max
+        if scale:
+            inc_mask = (field <= 1 - thetas).astype(int)
+            dec_mask = (field >= thetas).astype(int)
+        else:
+            inc_mask=(field <= metadata["col_max"][:-1] - thetas).astype(int)
+            dec_mask = (field >= thetas + metadata["col_min"][:-1]).astype(int)
+        # make sure it would not be less than 0 or col_min
+
 
         # check if any values in thetas are 0
         theta_mask = (thetas != 0).astype(int)
@@ -170,9 +180,9 @@ def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, 
         dec_mask *= theta_mask
 
         # index in fixed cannot be changed
-        for i in fixed:
-            inc_mask[0][i] = 0
-            dec_mask[0][i] = 0
+        # for i in fixed:
+        #     inc_mask[0][i] = 0
+        #     dec_mask[0][i] = 0
 
         # calculate saliency map
         inc_saliency_map = generate_saliency_map(
@@ -201,15 +211,9 @@ def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, 
 
         # alter by theta and convert back
         perturbations[feature_index] += theta
-        if embed:
-            non_cat = input_sample[-1].numpy() + perturbations
-            non_cat = tf.convert_to_tensor(non_cat)
 
-            x_adv = [*input_sample[:3], non_cat]
-
-        else:
-            x_adv = input_sample.numpy() + perturbations
-            x_adv = tf.convert_to_tensor(x_adv)
+        x_adv = input_sample.numpy() + perturbations
+        x_adv = tf.convert_to_tensor(x_adv)
 
     # print("input_sample:", input_sample)
     # print("perturbation:", perturbations)
@@ -221,7 +225,7 @@ def jsma_attack(input_sample, target, model, thetas, num_classes, max_iter=100, 
 
     return x_adv, i, prediction
 
-def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01):
+def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01, fixed=[],scale=True):
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
@@ -238,8 +242,9 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
     print("loading model")
     model = tf.keras.models.load_model(model_path)
 
+    fixed_index=field_name_search(metadata["field_names"], fixed)
     print("finding theta")
-    thetas = find_theta(metadata, theta)
+    thetas = find_theta(metadata, theta, fixed_index,scale=scale)
 
     print("genrating attack label map")
     maps = genfromtxt(
@@ -254,7 +259,7 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
     print("starting generation")
     for sample, label in packed_data.take(num_samples):
         jsma_sample, num_iter, pred= jsma_attack(sample["numeric"],
-                           target_class, model, thetas, num_classes, max_iter=200)
+                           target_class, model, thetas, metadata, max_iter=200, scale=scale)
 
         row=jsma_sample.numpy()
         row=np.append(row, [label.numpy()[0], num_iter, pred])
@@ -277,6 +282,33 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
 
 def tensor_to_numpy(x):
     return x.numpy()[0]
+
+def field_name_search(field_names, search_strings):
+    """
+    helper function to quickly find feature index to fix. The function returns
+    index of features that has elements of search_strings contained in feature name.
+    e.g. if search_strings=["Flags"] it will return index of all features names
+    containing flags. Multiple elements in search_strings returns the union of
+    indexes.
+
+    Args:
+        field_names (string array): list of field names from metadata.
+        search_strings (string array): list of string to search.
+
+    Returns:
+        list: a unique list of all feature indexes matched by search_strings.
+
+    """
+    results=[]
+    num_fields=len(field_names)
+    for string in search_strings:
+        matching=[s for s in range(num_fields) if string in field_names[s]]
+        results+=matching
+
+    # for i in range(num_fields):
+    #     print(field_names[i], i in results)
+
+    return list(set(results))
 
 def draw_perturbation(ori, adv, output_file_name, field_names):
     """

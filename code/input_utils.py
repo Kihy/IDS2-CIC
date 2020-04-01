@@ -225,14 +225,14 @@ def format_converter(data_directory, column_map_path, **kwargs):
     """
     dict=get_column_map(column_map_path)
     if os.path.isfile(data_directory):
-        convert_file(data_directory, dict)
+        convert_file(data_directory, dict, **kwargs)
     else:
         for file in os.listdir(data_directory):
             if file.endswith(".csv"):
                 convert_file(os.path.join(data_directory, file), dict, **kwargs)
 
 
-def convert_file(file, col_map,out_dir,metadata=False, use_filename_as_label=False):
+def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=False):
     """
     converts single file from Flow format to ml format.
 
@@ -244,8 +244,9 @@ def convert_file(file, col_map,out_dir,metadata=False, use_filename_as_label=Fal
         None: output files saved at experiment/attack_pcap.
 
     """
+
     print("processing file: {}".format(file))
-    metadata={}
+
     df = pd.read_csv(file, header=0, encoding="utf-8")
     df=df.rename(columns=col_map)
     df=df.drop(columns=['remove'])
@@ -254,12 +255,14 @@ def convert_file(file, col_map,out_dir,metadata=False, use_filename_as_label=Fal
 
     if use_filename_as_label:
         df=df.replace("No Label",file_name.split(".")[0])
-
+    print(metadata)
     if metadata:
-        metadata["field_names"]=df.columns.tolist()
-        metadata["num_samples"]=len(df.index)
+        meta_dict={}
+        print("generating metadata")
+        meta_dict["field_names"]=df.columns.tolist()
+        meta_dict["num_samples"]=len(df.index)
         with open('{}metadata_{}'.format(out_dir,file_name), 'w') as outfile:
-            json.dump(metadata, outfile, indent=True)
+            json.dump(meta_dict, outfile, indent=True)
     df.to_csv("{}{}".format(out_dir,file_name),index=False)
 
 
