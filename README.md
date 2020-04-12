@@ -39,7 +39,9 @@ pip install -r requirements.txt
 
 ### Runnning the codes
 Most of the functions available are listed in experiment.py, so just modify experiment.py and run
-``` python3 experiment.py
+
+```
+python3 experiment.py
 ```
 
 #### experiment.py
