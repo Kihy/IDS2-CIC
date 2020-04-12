@@ -1,0 +1,84 @@
+Flow ID,None
+Src IP,None
+Src Port,None
+Dst IP,None
+Dst Port,Destination Port
+Protocol,None
+Timestamp,None
+Flow Duration,Flow Duration
+Tot Fwd Pkts,Total Fwd Packets
+Tot Bwd Pkts,Total Backward Packets
+TotLen Fwd Pkts,Total Length of Fwd Packets
+TotLen Bwd Pkts,Total Length of Bwd Packets
+Fwd Pkt Len Max,Fwd Packet Length Max
+Fwd Pkt Len Min,Fwd Packet Length Min
+Fwd Pkt Len Mean,Fwd Packet Length Mean
+Fwd Pkt Len Std,Fwd Packet Length Std
+Bwd Pkt Len Max,Bwd Packet Length Max
+Bwd Pkt Len Min,Bwd Packet Length Min
+Bwd Pkt Len Mean,Bwd Packet Length Mean
+Bwd Pkt Len Std,Bwd Packet Length Std
+Flow Byts/s,Flow Bytes/s
+Flow Pkts/s,Flow Packets/s
+Flow IAT Mean,same
+Flow IAT Std,same
+Flow IAT Max,same
+Flow IAT Min,same
+Fwd IAT Tot,Fwd IAT Total
+Fwd IAT Mean,same
+Fwd IAT Std,same
+Fwd IAT Max,same
+Fwd IAT Min,same
+Bwd IAT Tot,Bwd IAT Total
+Bwd IAT Mean,same
+Bwd IAT Std,same
+Bwd IAT Max,same
+Bwd IAT Min,same
+Fwd PSH Flags,same
+Bwd PSH Flags,same
+Fwd URG Flags,same
+Bwd URG Flags,same
+Fwd Header Len,Fwd Header Length
+Bwd Header Len,Bwd Header Length
+Fwd Pkts/s,Fwd Packets/s
+Bwd Pkts/s,Bwd Packets/s
+Pkt Len Min,Min Packet Length
+Pkt Len Max,Max Packet Length
+Pkt Len Mean,Packet Length Mean
+Pkt Len Std,Packet Length Std
+Pkt Len Var,Packet Length Variance
+FIN Flag Cnt,FIN Flag Count
+SYN Flag Cnt,SYN Flag Count
+RST Flag Cnt,RST Flag Count
+PSH Flag Cnt,PSH Flag Count
+ACK Flag Cnt,ACK Flag Count
+URG Flag Cnt,URG Flag Count
+CWE Flag Count,CWE Flag Count
+ECE Flag Cnt,ECE Flag Count
+Down/Up Ratio,same
+Pkt Size Avg,Average Packet Size
+Fwd Seg Size Avg,Avg Fwd Segment Size
+Bwd Seg Size Avg,Avg Bwd Segment Size
+Fwd Byts/b Avg,Fwd Avg Bytes/Bulk
+Fwd Pkts/b Avg,Fwd Avg Packets/Bulk
+Fwd Blk Rate Avg,Fwd Avg Bulk Rate
+Bwd Byts/b Avg,Bwd Avg Bytes/Bulk
+Bwd Pkts/b Avg,Bwd Avg Packets/Bulk
+Bwd Blk Rate Avg,Bwd Avg Bulk Rate
+Subflow Fwd Pkts,Subflow Fwd Packets
+Subflow Fwd Byts,Subflow Fwd Bytes
+Subflow Bwd Pkts,Subflow Bwd Packets
+Subflow Bwd Byts,Subflow Bwd Bytes
+Init Fwd Win Byts,Init_Win_bytes_forward
+Init Bwd Win Byts,Init_Win_bytes_backward
+Fwd Act Data Pkts,act_data_pkt_fwd
+Fwd Seg Size Min,min_seg_size_forward
+Active Mean,same
+Active Std,same
+Active Max,same
+Active Min,same
+Idle Mean,same
+Idle Std,same
+Idle Max,same
+Idle Min,same
+Label,same
