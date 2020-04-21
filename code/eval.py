@@ -48,8 +48,8 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
     print("evaluated on batch_size:",batch_size)
 
     model = load_model(model_path)
-    y_pred_all=[]
-    labels_all=[]
+    y_pred_all=np.array([])
+    labels_all=np.array([])
     for features, labels in packed_test.take(metadata["num_test"]//batch_size):
 
         # generate predictions and decode them
@@ -61,7 +61,8 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
         labels_all=np.concatenate((labels_all,labels))
 
     attack_label = read_maps(
-        "../data/{}/maps/attack label.csv".format(dataset_name))
+        "../data/{}/maps/Label.csv".format(dataset_name))
+
 
     # draws a heat_map of the classification report
     report = classification_report(labels_all.flatten(), y_pred_all.flatten(), target_names=attack_label, labels=list(

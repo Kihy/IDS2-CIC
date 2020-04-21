@@ -79,7 +79,7 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
         metadata = json.load(file)
     print(metadata["dtypes"])
     train, val = load_dataset(
-        dataset_name, sets=["train", "val"],column_defaults=metadata["dtypes"],
+        dataset_name, sets=["train", "val"],
         label_name="Label", batch_size=batch_size)
 
     num_classes = metadata["num_classes"]
@@ -94,14 +94,16 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
     min = np.array(metadata["col_min"][:-1])
     max = np.array(metadata["col_max"][:-1])
 
+    input_dim=len(field_names)
+
     normalizer = min_max_scaler_gen(min, max)
     numeric_column = tf.feature_column.numeric_column(
-        'numeric', normalizer_fn=normalizer, shape=(77,))
+        'numeric', normalizer_fn=normalizer, shape=(input_dim,))
     numeric_columns = [numeric_column]
     numeric_layer = tf.keras.layers.DenseFeatures(numeric_columns, name='scaler')
 
     inputs = {
-        'numeric': tf.keras.layers.Input(name='numeric', shape=(77,), dtype='float32')
+        'numeric': tf.keras.layers.Input(name='numeric', shape=(input_dim,), dtype='float32')
     }
 
     dense_input = numeric_layer(inputs)

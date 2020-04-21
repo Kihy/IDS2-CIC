@@ -29,7 +29,6 @@ class PackNumericFeatures(object):
         numeric_features = tf.stack(numeric_features, axis=-1)
         features['numeric'] = numeric_features
         if self.num_classes!=None:
-            print(labels)
             labels=tf.one_hot(labels, self.num_classes)
         return features, labels
 
@@ -209,6 +208,17 @@ def get_column_map(path):
     map_file.close()
     return dict
 
+def add_label_col(file):
+    df=pd.read_csv("../experiment/attack_pcap/"+file)
+    protocol_map={}
+    with open("../data/dos_pyflowmeter/maps/protocol.csv") as f:
+        for i in f.readlines():
+            key,val=i.rstrip().split(",")
+            protocol_map[val]=key
+
+    df["Label"]=file.split(".")[0]
+    df["protocol"]=df["protocol"].apply(lambda x : protocol_map[x])
+    df.to_csv("../experiment/attack_pcap/"+file, index=False)
 
 def format_converter(data_directory, column_map_path, **kwargs):
     """
@@ -267,7 +277,7 @@ def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=F
 
 
 class DataReader:
-    def __init__(self, data_directory, train_test_split, test_val_split, files=[], ignore=False, attack_type=None, dataset_name=None):
+    def __init__(self, data_directory, train_test_split, test_val_split, files=[], ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False):
         """initializes the data reader for CIC-IDS datasets.
 
         Args:
@@ -280,6 +290,7 @@ class DataReader:
             train_test_split (float): percentage of all files in test.
             test_val_split (float): percentage of test files in validation.
             attack_type (string list): list of attack_types to include
+            use_filename_as_label(boolean): whether to use filename as labels. defaults to False
 
         Returns:
             nothing
@@ -296,6 +307,7 @@ class DataReader:
         self.attack_type = attack_type
         self.files=files
         self.ignore=ignore
+        self.use_filename_as_label=use_filename_as_label
 
 
     def generate_dataframes(self):
@@ -310,11 +322,12 @@ class DataReader:
         pp = pprint.PrettyPrinter(indent=4, compact=True)
 
         # get dataframes
-        dataframe, attack_label = self.generate_dataframe()
+        dataframe, maps, num_classes = self.generate_dataframe()
+
 
         # save metadata about the data for processing later
         metadata = {}
-        metadata["num_classes"] = len(attack_label)
+        metadata["num_classes"] = num_classes
         metadata["col_max"] = dataframe.max(axis=0).tolist()
         metadata["col_min"] = dataframe.min(axis=0).tolist()
         metadata["col_mean"] = dataframe.mean(axis=0).tolist()
@@ -350,8 +363,9 @@ class DataReader:
 
         self.dataframe = dataframe
         # save the maps
-        save_map("../data/{}/maps/{}.csv".format(self.dataset_name,
-                                                 "attack label"), attack_label)
+        for key, val in maps.items():
+            save_map("../data/{}/maps/{}.csv".format(self.dataset_name,
+                                                 key), val)
 
         with open('../data/{}/metadata.txt'.format(self.dataset_name), 'w') as outfile:
             json.dump(metadata, outfile, indent=True)
@@ -408,7 +422,9 @@ class DataReader:
                 df_chunk = pd.read_csv(os.path.join(
                     self.data_directory, file), header=0, chunksize=100000,
                     converters={14:check_float, 15:check_float }, encoding="utf-8")
-                datasets+=df_chunk
+                for chunk in df_chunk:
+                    chunk["Label"]=file.split(".")[0]
+                    datasets.append(chunk)
 
         print("finished loading datasets")
         all_data = pd.concat(datasets)
@@ -426,15 +442,20 @@ class DataReader:
             all_data = all_data[all_data["Label"].isin(self.attack_type)]
 
         # convert label to categorical
-        label_map = list(all_data["Label"].astype("category").cat.categories)
-        all_data["Label"] = all_data["Label"].astype("category").cat.codes
-        all_data["Label"] = all_data["Label"].astype("int32")
+        maps={}
+        cat_col=all_data.select_dtypes(['object']).columns
+        all_data[cat_col]=all_data[cat_col].astype("category")
+        for i in cat_col:
+            maps[i] = list(all_data[i].cat.categories)
+        all_data[cat_col]=all_data[cat_col].apply(lambda x: x.cat.codes)
+
+        num_classes=all_data["Label"].nunique()
 
         # remove negative and nan values
         all_data[all_data < 0] = np.nan
         all_data = all_data.fillna(0)
 
-        return all_data, label_map
+        return all_data, maps, num_classes
 
     def start(self):
         """

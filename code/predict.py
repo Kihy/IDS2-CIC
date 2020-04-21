@@ -23,7 +23,7 @@ matplotlib.use('Agg')
 def predict_sample(data_name, model_path, dataset_name, batch_size=1024):
     data = tf.data.experimental.make_csv_dataset("../experiment/attack_pcap/{}".format(
         data_name), batch_size=batch_size, label_name="Label", shuffle=False)
-    with open("../experiment/attack_pcap/metadata_{}".format(data_name)) as file:
+    with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
     field_names = metadata["field_names"][:-1]
     packed_data = data.map(PackNumericFeatures(field_names))

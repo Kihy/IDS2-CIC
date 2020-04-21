@@ -248,7 +248,7 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
 
     print("genrating attack label map")
     maps = genfromtxt(
-        "../data/{}/maps/attack label.csv".format(dataset_name), delimiter=',')
+        "../data/{}/maps/Label.csv".format(dataset_name), delimiter=',')
 
     print("creating dataframes")
     adv_col_names=metadata["field_names"]+["Iterations", "Adv Label"]

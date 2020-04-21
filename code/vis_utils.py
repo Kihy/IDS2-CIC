@@ -65,3 +65,14 @@ def vis_attack_distribution(data_path, out_file, ignore_label=True, attack=None)
     axes=df.hist(figsize=(25, 25),log=True)
 
     plt.savefig(out_file)
+
+def vis_diff(file1,file2,out_file):
+    df1=pd.read_csv(file1)
+    df1 = df1.drop(labels='Label', axis=1)
+    df2=pd.read_csv(file2)
+    df2 = df2.drop(labels='Label', axis=1)
+    diff=df1-df2
+
+    axes=diff.hist(figsize=(25, 25),log=True)
+
+    plt.savefig(out_file)
