@@ -18,19 +18,52 @@ matplotlib.use('Agg')
 pd.options.mode.use_inf_as_na = True
 
 class PackNumericFeatures(object):
-    def __init__(self, names, num_classes=None):
+    """
+    packs the features from tensorflow's csv dataset pipeline.
+
+    Args:
+        names (string list): feature names.
+        num_classes (int): number of classes, used for one hot encoding of labels. Defaults to None.
+        vae (boolean): Whether the return value is in vae format, i.e. label = features. Defaults to False.
+        scaler (func): a scaling function if you decide to do normalization at this stage. Defaults to None.
+
+    Attributes:
+        names
+        num_classes
+        vae
+        scaler
+
+    """
+    def __init__(self, names, num_classes=None, vae=False, scaler=None):
         self.names = names
         self.num_classes = num_classes
+        self.vae=vae
+        self.scaler=scaler
 
     def __call__(self, features, labels):
         numeric_features = [features.pop(name) for name in self.names]
         numeric_features = [tf.cast(feat, tf.float32)
                             for feat in numeric_features]
         numeric_features = tf.stack(numeric_features, axis=-1)
+
+        if self.scaler!=None:
+            numeric_features=self.scaler(numeric_features)
+
+        if self.vae:
+            return numeric_features, numeric_features
+
         features['numeric'] = numeric_features
         if self.num_classes!=None:
             labels=tf.one_hot(labels, self.num_classes)
+
         return features, labels
+
+def show_batch(dataset):
+    for batch, label in dataset.take(1):
+        print(label)
+        for key, value in batch.items():
+            print("{:20s}: {}".format(key, value.numpy()))
+
 
 def read_maps(filename):
     """

@@ -23,17 +23,6 @@ from tensorflow.keras.utils import plot_model
 matplotlib.use('Agg')
 
 
-def show_batch(dataset):
-    for batch, label in dataset.take(1):
-        print(label)
-        for key, value in batch.items():
-            print("{:20s}: {}".format(key, value.numpy()))
-
-
-
-
-
-
 
 def min_max_scaler_gen(min,max):
     def min_max_scaler(data):
