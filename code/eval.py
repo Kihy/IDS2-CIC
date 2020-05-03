@@ -1,7 +1,6 @@
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-import progressbar
 import tensorflow as tf
 from input_utils import load_dataset, read_maps
 from sklearn import preprocessing

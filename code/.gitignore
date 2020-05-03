@@ -7,6 +7,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+tensorboard_logs/
+loss_logs/
+network_graphs/
 
 # C extensions
 *.so
