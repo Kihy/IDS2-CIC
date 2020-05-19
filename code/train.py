@@ -47,7 +47,7 @@ def min_max_scaler_gen(min,max):
     return min_max_scaler
 
 
-def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
+def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50, label_name="Label"):
     """
     trains a normal 3 fully connected layer network. uses train and val subset of
     dataset_name.
@@ -68,7 +68,7 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
     print(metadata["dtypes"])
     train, val = load_dataset(
         dataset_name, sets=["train", "val"],
-        label_name="Label", batch_size=batch_size)
+        label_name=label_name, batch_size=batch_size)
 
     num_classes = metadata["num_classes"]
     field_names=metadata["field_names"][:-1]
@@ -93,7 +93,7 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50):
     inputs = {
         'numeric': tf.keras.layers.Input(name='numeric', shape=(input_dim,), dtype='float32')
     }
-
+    # inputs=tf.keras.layers.Input(name='input', shape=(input_dim,), dtype='float32')
     dense_input = numeric_layer(inputs)
     dense = Dense(41, activation='relu')(dense_input)
     dense1 = Dense(41, activation='relu')(dense)

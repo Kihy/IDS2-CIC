@@ -13,6 +13,7 @@ from sklearn import preprocessing
 import json
 from input_utils import load_dataset
 matplotlib.use('Agg')
+from tqdm import tqdm
 
 def find_theta(metadata, percent_theta, fixed=[], scale=True):
     """
@@ -225,7 +226,7 @@ def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100, sca
 
     return x_adv, i, prediction
 
-def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01, fixed=[],scale=True):
+def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01, fixed=[],scale=True, label_name="Label"):
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
@@ -233,7 +234,7 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
     # remove label field
     field_names=metadata["field_names"][:-1]
     num_classes=metadata["num_classes"]
-    data=load_dataset(dataset_name, sets=[set_name], label_name="Label", batch_size=batch_size)[0]
+    data=load_dataset(dataset_name, sets=[set_name], label_name=label_name, batch_size=batch_size)[0]
     data=data.unbatch().filter(lambda feature, label: label!=target_class).batch(batch_size)
     packed_data = data.map(PackNumericFeatures(field_names))
     # take 1
@@ -248,7 +249,7 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
 
     print("genrating attack label map")
     maps = genfromtxt(
-        "../data/{}/maps/Label.csv".format(dataset_name), delimiter=',')
+        "../data/{}/maps/{}.csv".format(dataset_name,label_name), delimiter=',')
 
     print("creating dataframes")
     adv_col_names=metadata["field_names"]+["Iterations", "Adv Label"]
@@ -257,20 +258,22 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
     scaler=model.get_layer("scaler")
 
     print("starting generation")
-    for sample, label in packed_data.take(num_samples):
-        jsma_sample, num_iter, pred= jsma_attack(sample["numeric"],
-                           target_class, model, thetas, metadata, max_iter=200, scale=scale)
+    with tqdm(total=num_samples) as pbar:
+        for sample, label in packed_data.take(num_samples):
+            jsma_sample, num_iter, pred= jsma_attack(sample["numeric"],
+                               target_class, model, thetas, metadata, max_iter=200, scale=scale)
 
-        row=jsma_sample.numpy()
-        row=np.append(row, [label.numpy()[0], num_iter, pred])
-        adv_df=adv_df.append(pd.Series(row, index=adv_col_names),ignore_index=True)
+            row=jsma_sample.numpy()
+            row=np.append(row, [label.numpy()[0], num_iter, pred])
+            adv_df=adv_df.append(pd.Series(row, index=adv_col_names),ignore_index=True)
 
-        pert=jsma_sample.numpy()-sample["numeric"].numpy()
-        pert_df=pert_df.append(pd.Series(pert[0], index=field_names), ignore_index=True)
-        # scaled_sample=scaler(sample)
-        # jsma={'numeric':jsma_sample}
-        # scaled_jsma=scaler(jsma)
-        # draw_perturbation(scaled_sample, scaled_jsma, "../experiment/pert_vis/test.png", field_names)
+            pert=jsma_sample.numpy()-sample["numeric"].numpy()
+            pert_df=pert_df.append(pd.Series(pert[0], index=field_names), ignore_index=True)
+            # scaled_sample=scaler(sample)
+            # jsma={'numeric':jsma_sample}
+            # scaled_jsma=scaler(jsma)
+            # draw_perturbation(scaled_sample, scaled_jsma, "../experiment/pert_vis/test.png", field_names)
+            pbar.update(1)
     print("finished all JSMA samples")
     adv_df.to_csv("../experiment/adv_data/{}_{}.csv".format(dataset_name,set_name), index=False)
     pert_df.to_csv("../experiment/adv_data/{}_{}_pert.csv".format(dataset_name,set_name), index=False)

@@ -16,7 +16,7 @@ from train import PackNumericFeatures
 import json
 matplotlib.use('Agg')
 
-def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
+def evaluate_network(dataset_name, model_path, output_name, batch_size=1024, label_name="Label"):
     """
     evaluates the a model. generates classification report (including precision recall and accuracy) and a graphical
     version of the classification report. classification report has name output_name.txt and
@@ -35,7 +35,7 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
 
     """
     test = load_dataset(
-        dataset_name, sets=["test"], label_name="Label", batch_size=batch_size)[0]
+        dataset_name, sets=["test"], label_name=label_name, batch_size=batch_size)[0]
 
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
@@ -60,7 +60,7 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024):
         labels_all=np.concatenate((labels_all,labels))
 
     attack_label = read_maps(
-        "../data/{}/maps/Label.csv".format(dataset_name))
+        "../data/{}/maps/{}.csv".format(dataset_name,label_name))
 
 
     # draws a heat_map of the classification report

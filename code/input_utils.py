@@ -5,17 +5,19 @@ import os
 import pprint
 from itertools import product
 
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 from numpy import genfromtxt
+
+import matplotlib
+import matplotlib.pyplot as plt
+import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from tensorflow.keras.utils import to_categorical
 
 matplotlib.use('Agg')
 pd.options.mode.use_inf_as_na = True
+
 
 class PackNumericFeatures(object):
     """
@@ -34,11 +36,11 @@ class PackNumericFeatures(object):
         scaler
 
     """
-    def __init__(self, names, num_classes=None, vae=False, scaler=None):
+
+    def __init__(self, names, num_classes=None, scaler=None):
         self.names = names
         self.num_classes = num_classes
-        self.vae=vae
-        self.scaler=scaler
+        self.scaler = scaler
 
     def __call__(self, features, labels):
         numeric_features = [features.pop(name) for name in self.names]
@@ -46,17 +48,15 @@ class PackNumericFeatures(object):
                             for feat in numeric_features]
         numeric_features = tf.stack(numeric_features, axis=-1)
 
-        if self.scaler!=None:
-            numeric_features=self.scaler(numeric_features)
-
-        if self.vae:
-            return numeric_features, numeric_features
+        if self.scaler != None:
+            numeric_features = self.scaler(numeric_features)
 
         features['numeric'] = numeric_features
-        if self.num_classes!=None:
-            labels=tf.one_hot(labels, self.num_classes)
+        if self.num_classes != None:
+            labels = tf.one_hot(labels, self.num_classes)
 
         return features, labels
+
 
 def show_batch(dataset):
     for batch, label in dataset.take(1):
@@ -96,8 +96,8 @@ def check_float(x):
         float: float version of x.
 
     """
-    if x=="":
-        x=0
+    if x == "":
+        x = 0
     x = float(x)
     return x
 
@@ -137,7 +137,7 @@ def get_field_names(filename):
     return field_names
 
 
-def load_dataset(dataset_name, sets=["train", "test", "val"],**kwargs):
+def load_dataset(dataset_name, sets=["train", "test", "val"], **kwargs):
     """returns various samples of datasets. the samples are defined by prefix_suffix,
     e.g. train_x
 
@@ -217,6 +217,7 @@ def split_dataframe(df, split_percentage, random_state=0):
         df, test_size=split_percentage, random_state=random_state)
     return df1, df2
 
+
 def get_column_map(path):
     """
     get the column mapping from raw extracted data to ml data.
@@ -228,30 +229,32 @@ def get_column_map(path):
         type: Description of returned object.
 
     """
-    map_file=open(path)
-    dict={}
+    map_file = open(path)
+    dict = {}
     for i in map_file.readlines():
-        key, value=i.rstrip().split(",")
-        if value=="same":
-            dict[key]=key
-        elif value=="None":
-            dict[key]="remove"
+        key, value = i.rstrip().split(",")
+        if value == "same":
+            dict[key] = key
+        elif value == "None":
+            dict[key] = "remove"
         else:
-            dict[key]=value
+            dict[key] = value
     map_file.close()
     return dict
 
+
 def add_label_col(file):
-    df=pd.read_csv("../experiment/attack_pcap/"+file)
-    protocol_map={}
+    df = pd.read_csv("../experiment/attack_pcap/" + file)
+    protocol_map = {}
     with open("../data/dos_pyflowmeter/maps/protocol.csv") as f:
         for i in f.readlines():
-            key,val=i.rstrip().split(",")
-            protocol_map[val]=key
+            key, val = i.rstrip().split(",")
+            protocol_map[val] = key
 
-    df["Label"]=file.split(".")[0]
-    df["protocol"]=df["protocol"].apply(lambda x : protocol_map[x])
-    df.to_csv("../experiment/attack_pcap/"+file, index=False)
+    df["Label"] = file.split(".")[0]
+    df["protocol"] = df["protocol"].apply(lambda x: protocol_map[x])
+    df.to_csv("../experiment/attack_pcap/" + file, index=False)
+
 
 def format_converter(data_directory, column_map_path, **kwargs):
     """
@@ -266,13 +269,14 @@ def format_converter(data_directory, column_map_path, **kwargs):
         None: converted file and metadata file is stored at experiment/attack_pcap/.
 
     """
-    dict=get_column_map(column_map_path)
+    dict = get_column_map(column_map_path)
     if os.path.isfile(data_directory):
         convert_file(data_directory, dict, **kwargs)
     else:
         for file in os.listdir(data_directory):
             if file.endswith(".csv"):
-                convert_file(os.path.join(data_directory, file), dict, **kwargs)
+                convert_file(os.path.join(
+                    data_directory, file), dict, **kwargs)
 
 
 def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=False):
@@ -291,26 +295,26 @@ def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=F
     print("processing file: {}".format(file))
 
     df = pd.read_csv(file, header=0, encoding="utf-8")
-    df=df.rename(columns=col_map)
-    df=df.drop(columns=['remove'])
+    df = df.rename(columns=col_map)
+    df = df.drop(columns=['remove'])
 
-    file_name=file.split("/")[-1]
+    file_name = file.split("/")[-1]
 
     if use_filename_as_label:
-        df=df.replace("No Label",file_name.split(".")[0])
+        df = df.replace("No Label", file_name.split(".")[0])
     print(metadata)
     if metadata:
-        meta_dict={}
+        meta_dict = {}
         print("generating metadata")
-        meta_dict["field_names"]=df.columns.tolist()
-        meta_dict["num_samples"]=len(df.index)
-        with open('{}metadata_{}'.format(out_dir,file_name), 'w') as outfile:
+        meta_dict["field_names"] = df.columns.tolist()
+        meta_dict["num_samples"] = len(df.index)
+        with open('{}metadata_{}'.format(out_dir, file_name), 'w') as outfile:
             json.dump(meta_dict, outfile, indent=True)
-    df.to_csv("{}{}".format(out_dir,file_name),index=False)
+    df.to_csv("{}{}".format(out_dir, file_name), index=False)
 
 
 class DataReader:
-    def __init__(self, data_directory, train_test_split, test_val_split, files=[], ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False):
+    def __init__(self, data_directory, train_test_split, test_val_split, files=[], protocols=[], columns=[], label_col="Label", ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False):
         """initializes the data reader for CIC-IDS datasets.
 
         Args:
@@ -318,6 +322,9 @@ class DataReader:
             data_directory (string list): list of locations to look for csv data.
             num_features (int): number of features excluding the label
             files(list): a list of file to process, depends on ignore
+            protocols (string list): list of protocols to include
+            columns(string list): list of columns to includes
+            label_col(string): name of the label column
             ignore(boolean): if set to True, only the files in the files list are processed.
             if set to False, the files in files are ignored. to process all files set files to [] and ignore to False.
             train_test_split (float): percentage of all files in test.
@@ -338,10 +345,12 @@ class DataReader:
         self.train_test_split = train_test_split
         self.test_val_split = test_val_split
         self.attack_type = attack_type
-        self.files=files
-        self.ignore=ignore
-        self.use_filename_as_label=use_filename_as_label
-
+        self.files = files
+        self.ignore = ignore
+        self.use_filename_as_label = use_filename_as_label
+        self.protocols = protocols
+        self.columns = columns
+        self.label_col=label_col
 
     def generate_dataframes(self):
         """
@@ -357,7 +366,6 @@ class DataReader:
         # get dataframes
         dataframe, maps, num_classes = self.generate_dataframe()
 
-
         # save metadata about the data for processing later
         metadata = {}
         metadata["num_classes"] = num_classes
@@ -365,11 +373,10 @@ class DataReader:
         metadata["col_min"] = dataframe.min(axis=0).tolist()
         metadata["col_mean"] = dataframe.mean(axis=0).tolist()
         metadata["col_std"] = dataframe.std(axis=0).tolist()
-        metadata["field_names"]=dataframe.columns.tolist()
+        metadata["field_names"] = dataframe.columns.tolist()
         # dtype object not serializable so turn into string first
-        dtypes=[str(x) for x in dataframe.dtypes]
-        metadata["dtypes"]=dtypes
-
+        dtypes = [str(x) for x in dataframe.dtypes]
+        metadata["dtypes"] = dtypes
 
         # create dataset folder if it doesnt exist
         if not os.path.exists("../data/{}".format(self.dataset_name)):
@@ -398,7 +405,7 @@ class DataReader:
         # save the maps
         for key, val in maps.items():
             save_map("../data/{}/maps/{}.csv".format(self.dataset_name,
-                                                 key), val)
+                                                     key), val)
 
         with open('../data/{}/metadata.txt'.format(self.dataset_name), 'w') as outfile:
             json.dump(metadata, outfile, indent=True)
@@ -407,13 +414,13 @@ class DataReader:
         counts_file = open(
             "../data/{}/stats/counts.txt".format(self.dataset_name), "w")
         counts_file.write("all samples:\n{}\n".format(
-            self.dataframe["Label"].value_counts()))
+            self.dataframe[self.label_col].value_counts()))
         counts_file.write("train samples:\n{}\n".format(
-            self.train_data["Label"].value_counts()))
+            self.train_data[self.label_col].value_counts()))
         counts_file.write("test samples:\n{}\n".format(
-            self.test_data["Label"].value_counts()))
+            self.test_data[self.label_col].value_counts()))
         counts_file.write("val samples:\n{}\n".format(
-            self.val_data["Label"].value_counts()))
+            self.val_data[self.label_col].value_counts()))
         counts_file.close()
 
         # draw distributions of each attribute for all data
@@ -449,44 +456,54 @@ class DataReader:
         # get all files under data_directory
         for file in os.listdir(self.data_directory):
             # ignore .gitignore
-
-            if file.endswith(".csv") and ((file in self.files) == self.ignore):
-                print("processing file",file)
+            is_in_files=False
+            for i in self.files:
+                if i in file:
+                    is_in_files=True
+            if file.endswith(".csv") and (is_in_files == self.ignore):
+                print("processing file", file)
                 df_chunk = pd.read_csv(os.path.join(
                     self.data_directory, file), header=0, chunksize=100000,
-                    converters={14:check_float, 15:check_float }, encoding="utf-8")
+                    usecols=self.columns, encoding="utf-8")
+
                 for chunk in df_chunk:
-                    chunk["Label"]=file.split(".")[0]
+                    if self.use_filename_as_label:
+                        chunk[self.label_col] = file.split(".")[0]
+
+                    if len(self.protocols) > 0:
+                        chunk = chunk[chunk["protocol_type"].isin(
+                            self.protocols)]
                     datasets.append(chunk)
 
         print("finished loading datasets")
         all_data = pd.concat(datasets)
-
         # some headers have spaces in front
         all_data = all_data.rename(columns=lambda x: x.lstrip())
 
         # drop duplicate since duplicate columns ends with .n
         for colname in all_data.columns:
             if colname[-1].isdigit():
-                all_data=all_data.drop([colname],axis=1)
+                all_data = all_data.drop([colname], axis=1)
 
         # filter attacks
         if self.attack_type is not None:
-            all_data = all_data[all_data["Label"].isin(self.attack_type)]
-
+            all_data = all_data[all_data[self.label_col].isin(self.attack_type)]
+            if all_data.empty:
+                raise ValueError("Specified attack type results in empty dataframe")
         # convert label to categorical
-        maps={}
-        cat_col=all_data.select_dtypes(['object']).columns
-        all_data[cat_col]=all_data[cat_col].astype("category")
+        maps = {}
+        cat_col = all_data.select_dtypes(['object']).columns
+        all_data[cat_col] = all_data[cat_col].astype("category")
+
         for i in cat_col:
             maps[i] = list(all_data[i].cat.categories)
-        all_data[cat_col]=all_data[cat_col].apply(lambda x: x.cat.codes)
+        all_data[cat_col] = all_data[cat_col].apply(lambda x: x.cat.codes)
 
-        num_classes=all_data["Label"].nunique()
+        num_classes = all_data[self.label_col].nunique()
 
-        # remove negative and nan values
-        all_data[all_data < 0] = np.nan
-        all_data = all_data.fillna(0)
+        # # remove negative and nan values
+        # all_data[all_data < 0] = np.nan
+        # all_data = all_data.fillna(0)
 
         return all_data, maps, num_classes
 

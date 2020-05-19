@@ -12,8 +12,8 @@ __pycache__/
 experiment/
 IDS*/
 models/
-
-
+ku_httpflooding/
+code/__pycache__/
 # C extensions
 *.so
 

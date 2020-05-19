@@ -260,7 +260,7 @@ class VariationalAutoEncoder(Model):
         return reconstructed
 
 
-def generate_latent_tsv(model, input_data, label, output_dir, batch_size=128):
+def generate_latent_tsv(model, input_data, label, output_dir, batch_size=128, vae=False):
     """
     generates tsv files that can be used in https://projector.tensorflow.org/.
 
@@ -274,10 +274,12 @@ def generate_latent_tsv(model, input_data, label, output_dir, batch_size=128):
     Returns:
         None: saves files at output_dir
     """
-
-    _, _, x_test_encoded = model(input_data)
+    if vae:
+        x_test_encoded=model(input_data)[-1]
+    else:
+        x_test_encoded = model(input_data)
     label = np.argmax(label.numpy(), axis=1)
-
+    print(model.name)
     np.savetxt("{}/{}_points.tsv".format(output_dir, model.name),
                x_test_encoded, delimiter="\t")
     np.savetxt("{}/{}_labels.tsv".format(output_dir,
@@ -334,13 +336,23 @@ def min_max_scaler_gen(min, max):
         x_std = (data - min) / data_range
 
         return x_std
-    return min_max_scaler
+
+    def min_max_unscaler(data):
+        data_range = max - min
+
+        data_range = np.where(data_range != 0, data_range, 1)
+
+        unscaled=data*data_range+min
+
+        return unscaled
+
+    return min_max_scaler, min_max_unscaler
 
 
 def train_vae(dataset_name, batch_size, intermediate_dim, latent_dim, epochs, alpha, beta, l1, l2, recon_loss):
     train, val = load_dataset(
         dataset_name, sets=["train", "val"],
-        label_name="Label", batch_size=batch_size)
+        label_name="category", batch_size=batch_size)
     #
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
@@ -357,7 +369,7 @@ def train_vae(dataset_name, batch_size, intermediate_dim, latent_dim, epochs, al
     datamin = np.array(metadata["col_min"][:-1])
     datamax = np.array(metadata["col_max"][:-1])
 
-    scaler = min_max_scaler_gen(datamin, datamax)
+    scaler,_ = min_max_scaler_gen(datamin, datamax)
     #
     packed_train_data = train.map(
         PackNumericFeatures(field_names, num_classes, vae=True, scaler=scaler))
@@ -372,7 +384,8 @@ def train_vae(dataset_name, batch_size, intermediate_dim, latent_dim, epochs, al
     vae.compile(optimizer='adam',
                 loss=recon_func, metrics=[recon_func])
 
-# limit the number of training and validation data validation data should be disabled if dataset is small
+    # limit the number of training and validation data validation data should be disabled if dataset is small
+    #using model.fit may not be the best option and is now outdated. consider using manual training
     vae.fit(packed_train_data,
             shuffle=True,
             epochs=epochs,
@@ -409,19 +422,26 @@ def forward_derviative(model, input, feature_names):
     outputs = []
     with tf.GradientTape(persistent=True) as tape:
         tape.watch(input_sample)
-        output = model(input_sample)[0]
+
+        output = model(input_sample)
+
+        if isinstance(output, tuple):
+            output=output[0]
 
         for i in range(output.shape[1]):
             outputs.append(output[:, i])
 
     y_pos = list(range(len(feature_names)))
-    plt.figure(figsize=(15, 10))
-    for i in range(len(outputs)):
+    num_output=len(outputs)
+    plt.figure(figsize=(input.shape[0], num_output*3))
+    for i in range(num_output):
         g = tape.gradient(outputs[i], input_sample)
 
-        plt.subplot(len(outputs), 1, i + 1)
-        plt.bar(y_pos, g.numpy()[0])
-    plt.xticks(y_pos, field_names, rotation=30,
+        plt.subplot(num_output, 1, i + 1)
+        plt.title(i)
+        plt.bar(y_pos, g.numpy()[0], width=0.1)
+        # plt.tight_layout()
+    plt.xticks(y_pos, feature_names, rotation=30,
                horizontalalignment='right')
 
     plt.savefig("../experiment/vae_vis/forward_derivative.png")
@@ -472,25 +492,30 @@ def output_wrt_dim(model, input, feature_names):
     plt.savefig("../experiment/vae_vis/output_grad_wrt_dim.png")
 
 
+def decode_sample(input_sample, decoder, unscaler):
+    input_sample=[input_sample]
+    output=decoder(input_sample)
+    return unscaler(output)
+
 if __name__ == '__main__':
-    dataset_name = "dos_pyflowmeter"
-    batch_size = 128
-    intermediate_dim = 24
+    dataset_name = "ku_httpflooding"
+    batch_size = 1024
+    intermediate_dim = 12
     latent_dim = 3
-    epochs = 500
-    alpha = 1.
-    beta = 0.1
+    epochs = 30
+    alpha = 21.
+    beta = 0.
     l1 = 0.01
     l2 = 0.01
     recon_loss = "binary_crossentropy"
 
     # train the model
-    # train_vae(dataset_name, batch_size, intermediate_dim,
-    #           latent_dim, epochs, alpha, beta, l1, l2, recon_loss)
+    train_vae(dataset_name, batch_size, intermediate_dim,
+              latent_dim, epochs, alpha, beta, l1, l2, recon_loss)
 
     # loading the model
     val = load_dataset(dataset_name, sets=["val"],
-                       label_name="Label", batch_size=batch_size)[0]
+                       label_name="category", batch_size=batch_size)[0]
 
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
@@ -502,20 +527,26 @@ if __name__ == '__main__':
     datamin = np.array(metadata["col_min"][:-1])
     datamax = np.array(metadata["col_max"][:-1])
 
-    scaler = min_max_scaler_gen(datamin, datamax)
+    scaler,unscaler = min_max_scaler_gen(datamin, datamax)
 
     # original, jsma, fgsm=main()
     packed_val_data = val.map(PackNumericFeatures(
         field_names, num_classes, scaler=scaler))
     vae = tf.keras.models.load_model(
-        "../models/vae/{}_{}_{}.h5".format(dataset_name, alpha, recon_loss), compile=False)
+        "../models/vae/{}_{}_{}".format(dataset_name, alpha, recon_loss), compile=False)
+
 
     # visualize stuff
     for features, labels in packed_val_data.take(1):
-        output_wrt_dim(vae, features['numeric'].numpy()[0], field_names)
-        forward_derviative(vae.encoder, features['numeric'].numpy()[0], field_names)
+        _,_,encoded=vae.encoder(features['numeric'].numpy())
+        print(features['numeric'].numpy()[0])
+        out=decode_sample(encoded[0], vae.decoder, unscaler)
+        print(out)
+        # output_wrt_dim(vae., features['numeric'].numpy()[0], field_names)
+        # forward_derviative(vae.encoder, features['numeric'].numpy()[0], field_names)
+        # forward_derviative(vae.decoder, encoded[0], ["dim{}".format(i) for i in range(latent_dim)])
         generate_latent_tsv(
-            vae.encoder, features['numeric'].numpy(), labels, "../experiment/vae_vis/")
-    #
+            vae.encoder, features['numeric'].numpy(), labels, "../experiment/vae_vis/", vae=True)
+    # #
     visualize_latent_dimensions(
         vae.encoder, features['numeric'].numpy(), 1, "../experiment/vae_vis/")
