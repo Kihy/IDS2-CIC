@@ -9,8 +9,7 @@ __pycache__/
 *$py.class
 
 *data/
-experiment/
-!experiment/aae_vis/*.tsv
+experiment/*
 IDS*/
 models/
 ku_httpflooding/
@@ -113,5 +112,6 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
 
 # End of https://www.gitignore.io/api/python
