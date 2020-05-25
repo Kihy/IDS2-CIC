@@ -10,6 +10,7 @@ __pycache__/
 
 *data/
 experiment/*
+!experiment/aae_vis/*.tsv
 IDS*/
 models/
 ku_httpflooding/

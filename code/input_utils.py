@@ -19,6 +19,39 @@ matplotlib.use('Agg')
 pd.options.mode.use_inf_as_na = True
 
 
+def min_max_scaler_gen(min, max):
+    def min_max_scaler(data):
+        """
+        scales the input according to metadata.
+
+        Args:
+            feature (ordered dict): feature from tf.dataset.
+            label (ordered dict): labels.
+
+        Returns:
+            ordered dict, ordered dict: the scaled input and label with same size as input.
+
+        """
+        data_range = max - min
+        # replace 0 with 1 so it does not produce nan
+        data_range = np.where(data_range != 0, data_range, 1)
+
+        x_std = (data - min) / data_range
+
+        return x_std
+
+    def min_max_unscaler(data):
+        data_range = max - min
+
+        data_range = np.where(data_range != 0, data_range, 1)
+
+        unscaled=data*data_range+min
+
+        return unscaled
+
+    return min_max_scaler, min_max_unscaler
+
+
 class PackNumericFeatures(object):
     """
     packs the features from tensorflow's csv dataset pipeline.

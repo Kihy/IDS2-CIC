@@ -10,7 +10,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 import tensorflow as tf
 from input_utils import *
-from input_utils import load_dataset
 from matplotlib import cm
 from sklearn import preprocessing
 from sklearn.preprocessing import MinMaxScaler
@@ -316,37 +315,6 @@ def visualize_latent_dimensions(model, input_data, index, output_dir):
     f.savefig("{}/{}_latent_dims_{}.png".format(output_dir, model.name, index))
 
 
-def min_max_scaler_gen(min, max):
-    def min_max_scaler(data):
-        """
-        scales the input according to metadata.
-
-        Args:
-            feature (ordered dict): feature from tf.dataset.
-            label (ordered dict): labels.
-
-        Returns:
-            ordered dict, ordered dict: the scaled input and label with same size as input.
-
-        """
-        data_range = max - min
-        # replace 0 with 1 so it does not produce nan
-        data_range = np.where(data_range != 0, data_range, 1)
-
-        x_std = (data - min) / data_range
-
-        return x_std
-
-    def min_max_unscaler(data):
-        data_range = max - min
-
-        data_range = np.where(data_range != 0, data_range, 1)
-
-        unscaled=data*data_range+min
-
-        return unscaled
-
-    return min_max_scaler, min_max_unscaler
 
 
 def train_vae(dataset_name, batch_size, intermediate_dim, latent_dim, epochs, alpha, beta, l1, l2, recon_loss):

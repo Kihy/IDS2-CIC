@@ -6,18 +6,19 @@ import numpy as np
 import keract
 import matplotlib.pyplot as plt
 import tensorflow as tf
-from input_utils import PackNumericFeatures, load_dataset
+import tensorflow_addons as tfa
+from input_utils import PackNumericFeatures, load_dataset, min_max_scaler_gen
 from sklearn import svm
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, pairwise_distances
 from tensorboard.plugins.hparams import api as hp
 from tensorflow.keras.layers import (Activation, BatchNormalization,
                                      Concatenate, Dense, Dropout, Embedding,
                                      Flatten, GaussianNoise, Input, Lambda,
-                                     LeakyReLU, MaxPooling2D, Reshape,
+                                     Layer, LeakyReLU, MaxPooling2D, Reshape,
                                      ZeroPadding2D, multiply)
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.utils import plot_model, to_categorical
-from vae import forward_derviative, generate_latent_tsv, min_max_scaler_gen
+from vae import forward_derviative, generate_latent_tsva
 
 # class Encoder(Model):
 #
@@ -162,6 +163,31 @@ from vae import forward_derviative, generate_latent_tsv, min_max_scaler_gen
 #         return reconstructed, validity
 
 
+class WcLayer(Layer):
+    def __init__(self, dimensions=3, distance_thresh=0.5):
+        super(WcLayer, self).__init__()
+        self.dimensions = dimensions
+        self.distance_thresh=distance_thresh
+
+    def build(self, input_shape):
+        self.w = self.add_weight(shape=(input_shape[-1], self.dimensions),
+                                 initializer=tf.keras.initializers.Constant(3.),
+                                 trainable=True)
+
+    def call(self, inputs):
+
+        cluster_head = tf.matmul(inputs, self.w)
+        # distances = tfa.losses.metric_learning.pairwise_distance(cluster_head)
+        # distance_loss=0
+        # for i in range(distances.shape[0]):
+        #     for j in range(i):
+        #         if distances[i,j]>self.distance_thresh:
+        #             distance_loss+=distances[i,j]
+        # self.add_loss(distance_loss)
+
+        return cluster_head
+
+
 def build_encoder(input_shape=(21,), latent_dim=2, intermediate_dim=20, name="encoder", output_cat=False, num_classes=None):
     input_layer = Input(shape=input_shape, name="encoder_input")
 
@@ -237,11 +263,12 @@ def build_aae(original_dim, intermediate_dim, latent_dim, supervised=False, num_
     return aae, encoder, decoder, discriminator
 
 
-def build_label_aae(original_dim, intermediate_dim, latent_dim, num_classes):
+def build_label_aae(original_dim, intermediate_dim, latent_dim, num_classes, representation=False):
     encoder = build_encoder(input_shape=(original_dim,), latent_dim=latent_dim,
                             intermediate_dim=intermediate_dim, output_cat=True, num_classes=num_classes)
+
     decoder = build_decoder(original_dim=original_dim, latent_dim=latent_dim,
-                            intermediate_dim=intermediate_dim, labelled=True, num_classes=num_classes)
+                            intermediate_dim=intermediate_dim, labelled=False, num_classes=num_classes)
 
     latent_discriminator = build_discriminator(latent_dim, name="latent_disc")
     latent_discriminator.compile(loss='binary_crossentropy',
@@ -256,7 +283,15 @@ def build_label_aae(original_dim, intermediate_dim, latent_dim, num_classes):
     inputs = Input(shape=(original_dim,), name="aae_input")
     encoded, cat_out = encoder(inputs)
 
-    decoded = decoder([encoded, cat_out])
+    if representation:
+
+        wc_layer=WcLayer(dimensions=latent_dim, distance_thresh=0.4)
+        cluster_head = wc_layer(cat_out)
+        representation = tf.keras.layers.Add()([cluster_head, encoded])
+    else:
+        representation = [encoded, cat_out]
+
+    decoded = decoder(representation)
     latent_validity = latent_discriminator(encoded)
 
     cat_validity = cat_discriminator(cat_out)
@@ -350,6 +385,7 @@ def train_label_aae(configs, tuning=False, hparams=None):
         label_name="category", batch_size=batch_size)
     supervised = configs["supervised"]
     epochs = configs["epochs"]
+    representation=configs["representation"]
 
     # if not hyperparameter tuning, set up tensorboard
     if not tuning:
@@ -383,7 +419,7 @@ def train_label_aae(configs, tuning=False, hparams=None):
 
     # oop version does not provide a good graph trace so using functional instead
     aae, encoder, decoder, latent_discriminator, cat_discriminator = build_label_aae(
-        input_dim, intermediate_dim, latent_dim, num_classes)
+        input_dim, intermediate_dim, latent_dim, num_classes, representation=representation)
 
     aae.compile(loss=['mse', 'binary_crossentropy', 'binary_crossentropy'],
                 loss_weights=loss_weights, optimizer='adam',
@@ -418,7 +454,7 @@ def train_label_aae(configs, tuning=False, hparams=None):
             cat_discriminator.trainable = True
             # real_cat = sample_prior(
             #     batch_size, distro="categorical", num_classes=num_classes)
-            real_cat=label
+            real_cat = label
             cat_loss_real = cat_discriminator.train_on_batch(real_cat, valid)
             cat_loss_fake = cat_discriminator.train_on_batch(fake_cat, invalid)
             cat_loss = 0.5 * np.add(cat_loss_real, cat_loss_fake)
@@ -736,6 +772,7 @@ def eval(configs):
         np.savetxt(pred_label_file, pred_label, delimiter="\n")
         scatter = plt.scatter(encoded.numpy()[:, 0], encoded.numpy()[
                               :, 1], c=labels, label=labels)
+
     print("average mse:", total_mse / steps)
     print("average label acc:", correct_label / 1024 / steps)
     legend1 = plt.legend(*scatter.legend_elements(),
@@ -750,7 +787,6 @@ def eval(configs):
     # encoded = encoder(features['numeric'].numpy())
     # forward_derviative(decoder, encoded.numpy()[0], ["dim{}".format(i) for i in range(configs["latent_dim"])])
     # decoder_impact(decoder, [0.40617728,0.46284026,0.66842294])
-
 
 
 def decoder_impact(decoder, encoded_repr):
@@ -825,7 +861,8 @@ if __name__ == '__main__':
         "epochs": 30,
         "latent_dim": 3,
         "reconstruction_weight": 0.9,
-        "intermediate_dim": 24
+        "intermediate_dim": 24,
+        "representation":False
     }
     eval_configs = {
         "batch_size": 1024,
@@ -837,5 +874,5 @@ if __name__ == '__main__':
 
     # hparam_tuning(configs)
     # train(training_configs)
-    eval(eval_configs)
-    # train_label_aae(training_configs)
+    # eval(eval_configs)
+    train_label_aae(training_configs)
