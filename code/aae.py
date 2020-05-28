@@ -855,7 +855,7 @@ if __name__ == '__main__':
     }
     training_configs = {
         "batch_size": 1024,
-        "dataset_name": "ku_google_home",
+        "dataset_name": "ku_httpflooding",
         "data_sets": ["train", "val"],
         "supervised": False,
         "epochs": 30,
@@ -866,7 +866,7 @@ if __name__ == '__main__':
     }
     eval_configs = {
         "batch_size": 1024,
-        "dataset_name": "ku_google_home",
+        "dataset_name": "ku_httpflooding",
         "data_sets": ["test"],
         "supervised": False,
         "latent_dim": 3

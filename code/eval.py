@@ -14,7 +14,30 @@ from tensorflow.keras.utils import plot_model
 from matplotlib.colors import to_hex, Normalize
 from train import PackNumericFeatures
 import json
+from aae_dim_reduce import WcLayer
 matplotlib.use('Agg')
+
+def generate_fake_data(model_path, fieldnames, n_samples, dataset_name):
+    #last fieldname is label and first column is always 0
+    samples=np.random.rand(n_samples, len(fieldnames)-2)
+    samples=np.c_[np.zeros(n_samples),samples ]
+    print(samples)
+    np.savetxt("../experiment/aae_vis/fake.csv",samples, delimiter=",",header=",".join(fieldnames))
+    inputs={'numeric':samples.astype('float32')}
+    model = tf.saved_model.load(model_path)
+    pred=model(inputs)
+    pred=np.argmax(pred,axis=1)
+    np.savetxt("../experiment/aae_vis/fake_pred.csv", pred, delimiter=",")
+
+    custom_objects = {'WcLayer': WcLayer}
+    prefix="{}_{}_{}".format(dataset_name, 3, False)
+    aae = tf.keras.models.load_model("../models/aae/{}_aae.h5".format(prefix), custom_objects=custom_objects)
+    encoder = tf.keras.models.load_model("../models/aae/{}_encoder.h5".format(prefix))
+    decoder = tf.keras.models.load_model("../models/aae/{}_decoder.h5".format(prefix))
+    encoded,label=encoder(samples)
+    np.savetxt("../experiment/aae_vis/fake_encode.csv",encoded,delimiter="\t")
+
+
 
 def evaluate_network(dataset_name, model_path, output_name, batch_size=1024, label_name="Label"):
     """

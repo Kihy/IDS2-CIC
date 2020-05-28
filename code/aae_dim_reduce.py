@@ -7,7 +7,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import tensorflow as tf
 import tensorflow_addons as tfa
-from input_utils import PackNumericFeatures, load_dataset, min_max_scaler_gen
+from input_utils import PackNumericFeatures, load_dataset, min_max_scaler_gen, read_maps
 from sklearn import svm
 from sklearn.metrics import accuracy_score
 from tensorboard.plugins.hparams import api as hp
@@ -267,9 +267,12 @@ def train_aae(configs):
 def eval(configs):
     batch_size = configs["batch_size"]
     dataset_name = configs["dataset_name"]
-    test = load_dataset(
-        dataset_name, sets=["test"],
-        label_name="category", batch_size=batch_size)[0]
+    subset="test"
+    # dont shuffle since its already shuffled in datareader
+    test,meta = load_dataset(
+        dataset_name, sets=[subset], include_meta=True,
+        label_name="category", batch_size=batch_size, shuffle=False)[0]
+
     draw_scatter=configs["draw_scatter"]
     latent_dim=configs["latent_dim"]
     use_cat_dist=configs["use_cat_dist"]
@@ -297,78 +300,130 @@ def eval(configs):
 
     loss_func = tf.keras.losses.MeanSquaredError()
 
-    steps = metadata["num_test"] // batch_size
-
-    f = plt.figure(figsize=(15, 10))
+    steps = metadata["num_{}".format(subset)] // batch_size
 
     # visualize stuff
     latent_file = open(
-        "../experiment/aae_vis/{}_points.tsv".format(prefix), "w")
+        "../experiment/aae_vis/{}_style.tsv".format(prefix), "w")
     latent_label = open(
         "../experiment/aae_vis/{}_labels.tsv".format(prefix), "w")
-    pred_label_file = open(
-        "../experiment/aae_vis/{}_pred_labels.tsv".format(prefix), "w")
+    representation_file = open(
+        "../experiment/aae_vis/{}_representation.tsv".format(prefix), "w")
     total_mse = 0
     correct_label = 0
 
-    wc_weights=aae.get_layer("wc_layer").weights[0].numpy()
+    #read attack map for labelling
+    attack_map=read_maps("../data/{}/maps/category.csv".format(dataset_name))
+    attack_mapper=np.vectorize(lambda x: attack_map[x])
+
+    #get wc layer
+    wc_layer=aae.get_layer("wc_layer")
+    wc_weights=wc_layer.weights[0].numpy()
     print("cluster_heads:", wc_weights)
+
+    #write clusterheads to style and representation file
     np.savetxt(latent_file, wc_weights, delimiter="\t")
-    np.savetxt(latent_label, [2,3], delimiter="\n")
-    for features, labels in packed_test_data.take(steps):
+    np.savetxt(representation_file, wc_weights, delimiter="\t")
+    #write header for meta file
+    meta_col=["src_ip","dst_ip","idx", "fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag"]
+    header=[['label','pred_label']+meta_col+["dim1","dim2","dim3"]]
+    np.savetxt(latent_label, header,delimiter="\t",fmt="%s")
+
+
+    ch_labels=np.core.defchararray.add("ch_", attack_map)
+    ch_meta=np.stack((ch_labels,ch_labels,*list(np.zeros(ch_labels.shape) for i in range(len(meta_col))), wc_weights[:,0], wc_weights[:,1], wc_weights[:,2]),axis=1)
+    np.savetxt(latent_label, ch_meta, delimiter="\t", fmt="%s")
+
+    if draw_scatter:
+        fig,ax=plt.subplots(2,1)
+    p1=None
+    p2=None
+    for a, b in tf.data.Dataset.zip((packed_test_data, meta)).take(steps):
+        features=a[0]
+        labels=a[1]
+
         encoded, pred_label = encoder(features['numeric'].numpy())
-        decoded = decoder([encoded, pred_label])
+
+        cluster_head = wc_layer(pred_label)
+        representation = cluster_head+encoded
+        decoded = decoder(representation)
         labels = np.argmax(labels, axis=1)
         pred_label = np.argmax(pred_label.numpy(), axis=1)
         correct_label += sum(labels == pred_label)
+
+
+        if 6727 in b["idx"].numpy():
+            index=np.where(b["idx"]==6727)
+            if labels[index]==1:
+                p1=features['numeric'].numpy()[index]
+        if 2336 in b["idx"].numpy():
+            index=np.where(b["idx"]==2336)
+            if labels[index]==1:
+                p2=features['numeric'].numpy()[index]
+
+        # if p1 is not None and p2 is not None:
+        #     print(p1-p2)
+
         total_mse += loss_func(decoded, features['numeric'].numpy())
         # encoded = aae.encoder(features['numeric'].numpy())
         # output_wrt_dim(vae., features['numeric'].numpy()[0], field_names)
         # forward_derviative(vae.decoder, encoded[0], ["dim{}".format(i) for i in range(latent_dim)])
         # eval_with_different_label(aae, features["numeric"].numpy(), labels)
         np.savetxt(latent_file, encoded, delimiter="\t")
-        np.savetxt(latent_label, labels, delimiter="\n")
-        np.savetxt(pred_label_file, pred_label, delimiter="\n")
+        np.savetxt(representation_file, representation, delimiter="\t")
+
+        label_arr=np.stack((attack_mapper(labels), attack_mapper(pred_label),*list(b[x].numpy() for x in b.keys()), encoded[:,0], encoded[:,1], encoded[:,2]), axis=1)
+
+        np.savetxt(latent_label, label_arr, delimiter="\t", fmt="%s")
         if draw_scatter:
-            scatter = plt.scatter(encoded.numpy()[:, 0], encoded.numpy()[
-                                  :, 1], c=labels, label=labels)
+            scatter1=ax[0].scatter(encoded.numpy()[:, 0], encoded.numpy()[:, 1], c=labels, label=labels)
+            scatter2=ax[1].scatter(representation.numpy()[:,0],representation.numpy()[:,1],c=labels, label=labels)
+
+
 
     print("average mse:", total_mse / steps)
     print("average label acc:", correct_label / 1024 / steps)
     if draw_scatter:
-        legend1 = plt.legend(*scatter.legend_elements(),
+        #add cluster_head
+        scatter1=ax[0].scatter(wc_weights[:,0],wc_weights[:,1], )
+        scatter2=ax[1].scatter(wc_weights[:,0],wc_weights[:,1], )
+
+        legend1 = ax[0].legend(*scatter1.legend_elements(),
                              loc="lower left", title="Classes")
-        f.add_artist(legend1)
-        f.tight_layout()
-        f.savefig('../experiment/aae_vis/{}_scatter.png'.format(prefix))
+
+        legend2 = ax[1].legend(*scatter2.legend_elements(),
+                          loc="lower left", title="Classes")
+        ax[0].add_artist(legend1)
+        ax[1].add_artist(legend2)
+        plt.tight_layout()
+        plt.savefig('../experiment/aae_vis/{}_scatter.png'.format(prefix))
     latent_file.close()
     latent_label.close()
-    pred_label_file.close()
+    representation_file.close()
     # keract_stuff(encoder, features['numeric'].numpy())
     # encoded = encoder(features['numeric'].numpy())
     # forward_derviative(decoder, encoded.numpy()[0], ["dim{}".format(i) for i in range(configs["latent_dim"])])
     # decoder_impact(decoder, [0.40617728,0.46284026,0.66842294])
 
 
-
 if __name__ == '__main__':
     training_configs = {
         "batch_size": 1024,
-        "dataset_name": "ku_google_home",
+        "dataset_name": "ku_httpflooding_both",
         "epochs": 30,
         "latent_dim": 3,
         "reconstruction_weight": 0.8,
         "intermediate_dim": 24,
         "use_cat_dist":False,
-        "distance_thresh":0.4
+        "distance_thresh":0.1
     }
     eval_configs = {
         "batch_size": 1024,
-        "dataset_name": "ku_google_home",
+        "dataset_name": "ku_httpflooding_both",
         "latent_dim": 3,
-        "draw_scatter":True,
+        "draw_scatter":False,
         "use_cat_dist":False
     }
 
-    train_aae(training_configs)
+    # train_aae(training_configs)
     eval(eval_configs)

@@ -170,7 +170,7 @@ def get_field_names(filename):
     return field_names
 
 
-def load_dataset(dataset_name, sets=["train", "test", "val"], **kwargs):
+def load_dataset(dataset_name, include_meta=False, sets=["train", "test", "val"], shuffle=False, batch_size=1024, **kwargs):
     """returns various samples of datasets. the samples are defined by prefix_suffix,
     e.g. train_x
 
@@ -189,9 +189,13 @@ def load_dataset(dataset_name, sets=["train", "test", "val"], **kwargs):
         print("loading sample set:", set)
 
         data = tf.data.experimental.make_csv_dataset(
-            "../data/{}/{}.csv".format(dataset_name, set), **kwargs)
-
-        return_sets.append(data)
+            "../data/{}/{}.csv".format(dataset_name, set), batch_size=batch_size, shuffle=False, **kwargs)
+        if include_meta:
+            meta = tf.data.experimental.make_csv_dataset(
+                "../data/{}/stats/{}_meta.csv".format(dataset_name, set), batch_size=batch_size, shuffle=False)
+            return_sets.append([data,meta])
+        else:
+            return_sets.append(data)
     print("finished loading dataset")
     return return_sets
 
@@ -347,7 +351,7 @@ def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=F
 
 
 class DataReader:
-    def __init__(self, data_directory, train_test_split, test_val_split, files=[], protocols=[], columns=[], label_col="Label", ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False):
+    def __init__(self, data_directory, train_test_split, test_val_split, files=[], protocols=[], columns=[], label_col="Label", meta_col=[], ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False):
         """initializes the data reader for CIC-IDS datasets.
 
         Args:
@@ -358,6 +362,7 @@ class DataReader:
             protocols (string list): list of protocols to include
             columns(string list): list of columns to includes
             label_col(string): name of the label column
+            meta_col (string list): names of meta data columns, e.g. ["ip address"]
             ignore(boolean): if set to True, only the files in the files list are processed.
             if set to False, the files in files are ignored. to process all files set files to [] and ignore to False.
             train_test_split (float): percentage of all files in test.
@@ -383,6 +388,7 @@ class DataReader:
         self.use_filename_as_label = use_filename_as_label
         self.protocols = protocols
         self.columns = columns
+        self.meta_col=meta_col
         self.label_col=label_col
 
     def generate_dataframes(self):
@@ -400,15 +406,16 @@ class DataReader:
         dataframe, maps, num_classes = self.generate_dataframe()
 
         # save metadata about the data for processing later
+        actual_data=dataframe.filter(items=self.columns)
         metadata = {}
         metadata["num_classes"] = num_classes
-        metadata["col_max"] = dataframe.max(axis=0).tolist()
-        metadata["col_min"] = dataframe.min(axis=0).tolist()
-        metadata["col_mean"] = dataframe.mean(axis=0).tolist()
-        metadata["col_std"] = dataframe.std(axis=0).tolist()
-        metadata["field_names"] = dataframe.columns.tolist()
+        metadata["col_max"] = actual_data.max(axis=0).tolist()
+        metadata["col_min"] = actual_data.min(axis=0).tolist()
+        metadata["col_mean"] = actual_data.mean(axis=0).tolist()
+        metadata["col_std"] = actual_data.std(axis=0).tolist()
+        metadata["field_names"] = actual_data.columns.tolist()
         # dtype object not serializable so turn into string first
-        dtypes = [str(x) for x in dataframe.dtypes]
+        dtypes = [str(x) for x in actual_data.dtypes]
         metadata["dtypes"] = dtypes
 
         # create dataset folder if it doesnt exist
@@ -417,6 +424,7 @@ class DataReader:
             os.makedirs("../data/{}/maps".format(self.dataset_name))
             os.makedirs("../data/{}/stats".format(self.dataset_name))
 
+        print("splitting dataframe...")
         # split data into train, val, test and save
         self.train_data, test_data = split_dataframe(
             dataframe, self.train_test_split)
@@ -427,7 +435,7 @@ class DataReader:
         num_val = len(self.val_data.index)
         num_test = len(self.test_data.index)
 
-        print("test_data splitted into train:{}, test:{}, val:{}".format(
+        print("data splitted into train:{}, test:{}, val:{}".format(
             num_train, num_test, num_val))
 
         metadata["num_train"] = num_train
@@ -468,12 +476,18 @@ class DataReader:
             None: file written to data/{datasetname}/
 
         """
-        self.train_data.to_csv(
-            "../data/{}/train.csv".format(self.dataset_name), index=False)
-        self.val_data.to_csv(
-            "../data/{}/val.csv".format(self.dataset_name), index=False)
-        self.test_data.to_csv(
-            "../data/{}/test.csv".format(self.dataset_name), index=False)
+        print("writing to csv")
+        self.write_df(self.train_data, "train")
+        self.write_df(self.val_data, "val")
+        self.write_df(self.test_data, "test")
+
+
+    def write_df(self, df, name):
+        data=df.filter(items=self.columns)
+        #["fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag"]
+        meta=df.filter(items=self.meta_col+["flag"])
+        data.to_csv("../data/{}/{}.csv".format(self.dataset_name,name), index=False)
+        meta.to_csv("../data/{}/stats/{}_meta.csv".format(self.dataset_name,name), index=False)
 
     def generate_dataframe(self):
         """
@@ -496,10 +510,10 @@ class DataReader:
             if file.endswith(".csv") and (is_in_files == self.ignore):
                 print("processing file", file)
                 df_chunk = pd.read_csv(os.path.join(
-                    self.data_directory, file), header=0, chunksize=100000,
-                    usecols=self.columns, encoding="utf-8")
+                    self.data_directory, file), header=0, usecols=self.columns+self.meta_col, chunksize=100000, encoding="utf-8")
 
                 for chunk in df_chunk:
+
                     if self.use_filename_as_label:
                         chunk[self.label_col] = file.split(".")[0]
 
@@ -508,7 +522,9 @@ class DataReader:
                             self.protocols)]
                     datasets.append(chunk)
 
+
         print("finished loading datasets")
+        #processing actual data
         all_data = pd.concat(datasets)
         # some headers have spaces in front
         all_data = all_data.rename(columns=lambda x: x.lstrip())
@@ -523,13 +539,17 @@ class DataReader:
             all_data = all_data[all_data[self.label_col].isin(self.attack_type)]
             if all_data.empty:
                 raise ValueError("Specified attack type results in empty dataframe")
+
         # convert label to categorical
         maps = {}
-        cat_col = all_data.select_dtypes(['object']).columns
+        # errors=ignore since some meta col is not of type object
+        cat_col = all_data.select_dtypes(['object']).columns.drop(self.meta_col, errors='ignore')
+
         all_data[cat_col] = all_data[cat_col].astype("category")
 
         for i in cat_col:
             maps[i] = list(all_data[i].cat.categories)
+
         all_data[cat_col] = all_data[cat_col].apply(lambda x: x.cat.codes)
 
         num_classes = all_data[self.label_col].nunique()
