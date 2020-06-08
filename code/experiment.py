@@ -6,14 +6,14 @@ from train import *
 from vis_utils import *
 
 if __name__ == '__main__':
-    dataset_name = "ku_httpflooding"
+    dataset_name = "ku_google_home"
     model_type = "3layer"
     model_path = "../models/{}_{}".format(model_type, dataset_name)
     data_path = "../ku_httpflooding"
     percent_theta = 0.1
     target = 1
-    attack_type = ["http_flooding","normal"]
-    columns = ["protocol_type", "tl_data_len", "num_of_frags", "src_dst_same", "same_sip_pkt_cnt",
+    attack_type = ["http_flooding_1","http_flooding_10","normal"]
+    columns = ["protocol_type", "tl_data_len", "fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag","num_of_frags", "src_dst_same", "same_sip_pkt_cnt",
                "same_dip_pkt_cnt", "same_sip_sport_pkt_cnt", "same_dip_dport_pkt_cnt",
                "same_sip_pkt_dip_cnt", "same_dip_pkt_sip_cnt", "same_src_dst_pkt_sport_cnt",
                "same_src_dst_pkt_dport_cnt", "same_sip_src_bytes", "same_dip_dst_bytes",
@@ -25,16 +25,16 @@ if __name__ == '__main__':
     # fixed=["Flag","Subflow"]
     # fixed=["cnt","protocol","bwd","skew","kurtosis","min","iat"]
     # fixed=["same"]
-    meta_col=["src_ip","dst_ip","idx"]
-    # dr = DataReader(data_path, 0.2, 0.2, dataset_name=dataset_name, protocols=["TCP"], columns=columns, label_col=label_col, use_filename_as_label=False,
-    # ignore=True, files=["From"],meta_col=meta_col,
-    # attack_type=attack_type
-    # )
+    meta_col=["src_ip","dst_ip","idx","fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag"]
+    dr = DataReader(data_path, 0.2, 0.2, dataset_name=dataset_name, protocols=["TCP"], columns=columns, label_col=label_col, use_filename_as_label=False,
+    ignore=True, files=["flag"],meta_col=meta_col,
+    attack_type=attack_type
+    )
     # dr.generate_dataframes()
     # dr.write_to_csv()
     # dr.dataset_statistics()
-    # dr.start()
-    generate_fake_data(model_path, columns,10000,dataset_name)
+    dr.start()
+    # generate_fake_data(model_path, columns,10000,dataset_name)
     # train_normal_network(dataset_name, model_path, batch_size=1024, epochs=20,label_name=label_col)
     # evaluate_network(dataset_name, model_path, "{}_{}".format(model_type,dataset_name), batch_size=1024, label_name=label_col)
     # adversarial_generation(dataset_name, model_path, target, "train", num_samples=100, fixed=fixed, theta=0.01,scale=False,label_name=label_col)

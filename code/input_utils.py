@@ -170,7 +170,7 @@ def get_field_names(filename):
     return field_names
 
 
-def load_dataset(dataset_name, include_meta=False, sets=["train", "test", "val"], shuffle=False, batch_size=1024, **kwargs):
+def load_dataset(dataset_name, include_meta=False, sets=["train", "test", "val"], shuffle=False, batch_size=1024, filter=None, **kwargs):
     """returns various samples of datasets. the samples are defined by prefix_suffix,
     e.g. train_x
 
@@ -178,6 +178,7 @@ def load_dataset(dataset_name, include_meta=False, sets=["train", "test", "val"]
         dataset_name (string): name of the dataset.
         sets (array): a list of the sample name. defaults to ["train","test","val"]
         label_name (string): column name of the label. defaults to "Label"
+        filter(list): list of categories to include
 
     Returns:
         list of array: a list of array where indices correspond to prefix[0]_suffix[0], prefix[0]_suffix[1] ...
@@ -190,6 +191,9 @@ def load_dataset(dataset_name, include_meta=False, sets=["train", "test", "val"]
 
         data = tf.data.experimental.make_csv_dataset(
             "../data/{}/{}.csv".format(dataset_name, set), batch_size=batch_size, shuffle=False, **kwargs)
+        if filter is not None:
+            f=get_filter(filter)
+            data=data.unbatch().filter(f).batch(batch_size)
         if include_meta:
             meta = tf.data.experimental.make_csv_dataset(
                 "../data/{}/stats/{}_meta.csv".format(dataset_name, set), batch_size=batch_size, shuffle=False)
@@ -199,6 +203,13 @@ def load_dataset(dataset_name, include_meta=False, sets=["train", "test", "val"]
     print("finished loading dataset")
     return return_sets
 
+
+def get_filter(filter):
+    @tf.function
+    def row_filter(feature, label):
+
+        return tf.reduce_any(tf.equal(label, filter))
+    return row_filter
 
 def save_to_csv(filename, content):
     """write content to filename as csv file.
@@ -484,8 +495,7 @@ class DataReader:
 
     def write_df(self, df, name):
         data=df.filter(items=self.columns)
-        #["fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag"]
-        meta=df.filter(items=self.meta_col+["flag"])
+        meta=df.filter(items=self.meta_col)
         data.to_csv("../data/{}/{}.csv".format(self.dataset_name,name), index=False)
         meta.to_csv("../data/{}/stats/{}_meta.csv".format(self.dataset_name,name), index=False)
 
@@ -520,6 +530,8 @@ class DataReader:
                     if len(self.protocols) > 0:
                         chunk = chunk[chunk["protocol_type"].isin(
                             self.protocols)]
+                    chunk["same_sip_src_bytes"]/=1000
+                    chunk["same_dip_dst_bytes"]/=1000
                     datasets.append(chunk)
 
 
