@@ -84,11 +84,11 @@ class PackNumericFeatures(object):
         if self.scaler != None:
             numeric_features = self.scaler(numeric_features)
 
-        features['numeric'] = numeric_features
+
         if self.num_classes != None:
             labels = tf.one_hot(labels, self.num_classes)
 
-        return features, labels
+        return numeric_features, labels
 
 
 def show_batch(dataset):

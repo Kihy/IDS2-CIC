@@ -10,6 +10,7 @@ from tensorflow.keras.layers import (Activation, BatchNormalization,
                                      Flatten, GaussianNoise, Input, Lambda,
                                      Layer, LeakyReLU, MaxPooling2D, Reshape,
                                      ZeroPadding2D, multiply)
+from tensorflow.keras.metrics import Accuracy, BinaryAccuracy, MeanSquaredError
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.utils import plot_model, to_categorical
 from tqdm import tqdm
@@ -33,10 +34,11 @@ def sample_prior(batch_size, distro, num_classes=0, latent_dim=0):
     if distro == "normal":
         return np.random.normal(size=(batch_size, latent_dim))
     if distro == "uniform":
-        return np.random.uniform(size=(batch_size, latent_dim))
+        return np.random.uniform(-3, 3, size=(batch_size, latent_dim))
     if distro == "categorical":
         choices = np.random.choice(num_classes, batch_size)
         return np.eye(num_classes)[choices]
+
 
 class WcLayer(Layer):
     def __init__(self, dimensions=3, distance_thresh=0.5, **kwargs):
@@ -76,67 +78,70 @@ class WcLayer(Layer):
         return cluster_head
 
 
-def build_encoder(original_dim, latent_dim, intermediate_dim, num_classes, kernel_constraint=None , activity_regularizer=None, name="encoder"):
+def build_encoder(original_dim, latent_dim, intermediate_dim, num_classes, kernel_constraint=None, activity_regularizer=None, name="encoder"):
     input_layer = Input(shape=(original_dim,), name="encoder_input")
 
-
-    x = Dense(intermediate_dim, name="encoder_dense1", kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(input_layer)
-    x = BatchNormalization()(x)
+    x = Dense(intermediate_dim, name="encoder_dense1",
+              kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(input_layer)
+    # x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="encoder_act1")(x)
-    x = Dense(intermediate_dim, name="encoder_dense2", kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
-    x = BatchNormalization()(x)
+    x = Dense(intermediate_dim, name="encoder_dense2",
+              kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
+    # x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="encoder_act2")(x)
 
-    y = Dense(intermediate_dim, name="encoder_dense3", kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
-    y = BatchNormalization()(y)
-    y = LeakyReLU(alpha=0.2, name="encoder_act3")(y)
-
-    latent_repr = Dense(latent_dim, name="encoder_latent_out")(x)
-    cat_out = Dense(num_classes, name="encoder_cat_out")(y)
+    latent_repr = Dense(latent_dim, activation="linear",
+                        name="encoder_latent_out")(x)
+    cat_out = Dense(num_classes, activation="sigmoid",
+                    name="encoder_cat_out")(x)
 
     return Model(input_layer, [latent_repr, cat_out], name=name)
 
 
-def build_discriminator(input_shape, name="discriminator", activation="sigmoid"):
+def build_discriminator(input_shape, name="discriminator", int_activation="relu", output_activation="sigmoid"):
     disc_input = Input(shape=(input_shape, ), name="disc_input")
-    x = Dense(24, name="disc_dense1")(disc_input)
-    x = LeakyReLU(alpha=0.2, name="disc_act1")(x)
-    x = Dense(12, name="disc_dense2")(x)
-    x = LeakyReLU(alpha=0.2, name="disc_act2")(x)
-    validity = Dense(1, activation=activation, name="disc_out")(x)
+    x = Dense(24, activation=int_activation,name="disc_dense1")(disc_input)
+    # x = BatchNormalization()(x)
+    # x = LeakyReLU(alpha=0.2, name="disc_act1")(x)
+    x = Dense(12, activation=int_activation, name="disc_dense2")(x)
+    # x = BatchNormalization()(x)
+    # x = LeakyReLU(alpha=0.2, name="disc_act2")(x)
+    validity = Dense(1, activation=output_activation, name="disc_out")(x)
     return Model(disc_input, validity, name=name)
 
 
 def build_decoder(original_dim, latent_dim, intermediate_dim, num_classes, kernel_constraint=None, activity_regularizer=None, name="decoder"):
     repr_input = Input(shape=(latent_dim,), name="latent_input")
-    x = Dense(intermediate_dim, name="decoder_dense1", kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(repr_input)
-    x = BatchNormalization()(x)
+    x = Dense(intermediate_dim, name="decoder_dense1",
+              kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(repr_input)
+    # x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="decoder_act1")(x)
-    x = Dense(intermediate_dim, name="decoder_dense2", kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
-    x = BatchNormalization()(x)
+    x = Dense(intermediate_dim, name="decoder_dense2",
+              kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
+    # x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="decoder_act2")(x)
-    output = Dense(original_dim, activation="tanh", name="decoder_out")(x)
+    output = Dense(original_dim, activation="linear", name="decoder_out")(x)
 
     return Model(repr_input, output, name=name)
 
 
-def build_aae_dim_reduce(original_dim, intermediate_dim, latent_dim, num_classes, distance_thresh, kernel_constraint, activity_regularizer):
+def build_aae_dim_reduce(original_dim, intermediate_dim, latent_dim, num_classes, distance_thresh, kernel_constraint, activity_regularizer, loss_weights):
     encoder = build_encoder(original_dim=original_dim, latent_dim=latent_dim,
                             intermediate_dim=intermediate_dim, num_classes=num_classes, kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)
 
     decoder = build_decoder(original_dim=original_dim, latent_dim=latent_dim,
-                            intermediate_dim=intermediate_dim, num_classes=num_classes, kernel_constraint=kernel_constraint,activity_regularizer=activity_regularizer)
+                            intermediate_dim=intermediate_dim, num_classes=num_classes, kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)
 
     latent_discriminator = build_discriminator(
-        latent_dim, name="latent_disc", activation="sigmoid")
+        latent_dim, name="latent_disc", int_activation="sigmoid",output_activation="sigmoid")
     latent_discriminator.compile(loss='binary_crossentropy',
-                                 optimizer='adam', metrics=['accuracy'])
+                                 optimizer='adam', metrics=[BinaryAccuracy()])
     latent_discriminator.trainable = False
 
     cat_discriminator = build_discriminator(
-        num_classes, name="cat_disc", activation="sigmoid")
+        num_classes, name="cat_disc", int_activation="sigmoid", output_activation="sigmoid")
     cat_discriminator.compile(loss='binary_crossentropy',
-                              optimizer='adam', metrics=['accuracy'])
+                              optimizer='adam', metrics=[BinaryAccuracy()])
     cat_discriminator.trainable = False
 
     inputs = Input(shape=(original_dim,), name="aae_input")
@@ -155,15 +160,17 @@ def build_aae_dim_reduce(original_dim, intermediate_dim, latent_dim, num_classes
 
     return aae, encoder, decoder, latent_discriminator, cat_discriminator
 
+
 def weighted_mse(datarange):
 
-    # datarange=tf.cast(tf.math.sqrt(datarange),dtype="float32")
+    datarange = tf.cast(tf.math.sqrt(datarange), dtype="float32")
 
     def mse(y_true, y_pred):
-        loss=tf.math.square(y_true-y_pred)
-        weighted_loss=datarange*loss
-        return tf.reduce_mean(weighted_loss,axis=-1)
+        loss = tf.math.square(y_true - y_pred)
+        weighted_loss = datarange * loss
+        return tf.reduce_mean(weighted_loss, axis=-1)
     return mse
+
 
 def train_aae(configs):
     batch_size = configs["batch_size"]
@@ -171,18 +178,19 @@ def train_aae(configs):
     filter = configs["filter"]
 
     train, val = load_dataset(
-        dataset_name, sets=["train", "val"],
+        dataset_name, sets=["train", "val"], shuffle=False,
         label_name="category", batch_size=batch_size, filter=filter)
 
     epochs = configs["epochs"]
     latent_dim = configs["latent_dim"]
     intermediate_dim = configs["intermediate_dim"]
-    use_cat_dist = configs["use_cat_dist"]
+    use_clf_label = configs["use_clf_label"]
     weight = configs["reconstruction_weight"]
     loss_weights = [weight, (1 - weight) / 3,
                     (1 - weight) / 3, (1 - weight) / 3]
     distance_thresh = configs["distance_thresh"]
-
+    classification_model = tf.keras.models.load_model(
+        "../models/{}_{}".format(configs["clf_type"], dataset_name))
     # if not hyperparameter tuning, set up tensorboard
     logdir = "tensorboard_logs/aae/" + datetime.now().strftime("%Y%m%d-%H%M%S")
     train_summary_writer = tf.summary.create_file_writer(logdir)
@@ -198,7 +206,7 @@ def train_aae(configs):
     datamax = np.array(metadata["col_max"][:-1])
 
     scaler, unscaler = min_max_scaler_gen(datamin, datamax)
-    data_range=datamax-datamin
+    data_range = datamax - datamin
     #
     packed_train_data = train.map(
         PackNumericFeatures(field_names, num_classes, scaler=scaler))
@@ -207,13 +215,12 @@ def train_aae(configs):
 
     # oop version does not provide a good graph trace so using functional instead
     aae, encoder, decoder, latent_discriminator, cat_discriminator = build_aae_dim_reduce(
-        input_dim, intermediate_dim, latent_dim, num_classes, distance_thresh, unit_norm(), tf.keras.regularizers.l1(0.05))
+        input_dim, intermediate_dim, latent_dim, num_classes, distance_thresh, None, None, loss_weights)
 
-    wmse=weighted_mse(data_range)
-
-    aae.compile(loss=['mse', 'binary_crossentropy', 'binary_crossentropy', 'mse'],
+    # wmse=weighted_mse(data_range)
+    aae.compile(loss=[tf.keras.losses.MeanSquaredError(), tf.keras.losses.BinaryCrossentropy(), tf.keras.losses.BinaryCrossentropy(), tf.keras.losses.MeanSquaredError()],
                 loss_weights=loss_weights, optimizer='adam',
-                metrics=[['mse'], ['acc'], ['acc'], ['mse']])
+                metrics=[[MeanSquaredError(name="latent_mse")], [BinaryAccuracy(name="latent_acc")], [BinaryAccuracy(name="label_acc")], [MeanSquaredError(name="label_mse")]])
 
     valid = np.ones((batch_size, 1))
     invalid = np.zeros((batch_size, 1))
@@ -225,9 +232,7 @@ def train_aae(configs):
         steps = metadata["num_train"] // batch_size
         step_pbar = tqdm(total=steps, desc="steps", leave=False, position=1)
         for feature, label in packed_train_data.take(steps):
-            input_feature = feature['numeric']
-
-            fake_latent, fake_cat = encoder(input_feature)
+            fake_latent, fake_cat = encoder(feature)
             # train latent discriminator
             latent_discriminator.trainable = True
             real_latent = sample_prior(
@@ -237,7 +242,7 @@ def train_aae(configs):
                 0, 0.5, size=(batch_size, latent_dim))
 
             d_loss_real = latent_discriminator.train_on_batch(
-                real_latent+noise_real, valid)
+                real_latent + noise_real, valid)
             d_loss_fake = latent_discriminator.train_on_batch(
                 fake_latent, invalid)
             d_loss = 0.5 * np.add(d_loss_real, d_loss_fake)
@@ -246,14 +251,14 @@ def train_aae(configs):
 
             # train cat discriminator
             cat_discriminator.trainable = True
-            if use_cat_dist:
-                real_cat = sample_prior(
-                    batch_size, distro="categorical", num_classes=num_classes)
+            if use_clf_label:
+                real_cat = classification_model(feature)
+                real_cat = np.argmax(real_cat, axis=-1)
+                real_cat = np.eye(num_classes)[real_cat]
             else:
                 real_cat = label
 
-            cat_noise =  np.random.normal(0, 0.01, size=(batch_size, num_classes))
-            cat_loss_real = cat_discriminator.train_on_batch(real_cat+cat_noise, valid)
+            cat_loss_real = cat_discriminator.train_on_batch(real_cat, valid)
 
             cat_loss_fake = cat_discriminator.train_on_batch(fake_cat, invalid)
             cat_loss = 0.5 * np.add(cat_loss_real, cat_loss_fake)
@@ -262,9 +267,7 @@ def train_aae(configs):
 
             # train generator
             g_loss = aae.train_on_batch(
-                input_feature, [input_feature, valid, valid, label])
-
-            style,label=encoder(input_feature)
+                feature, [feature, valid, valid, real_cat])
 
             # record losses if not tuning
             with train_summary_writer.as_default():
@@ -272,21 +275,38 @@ def train_aae(configs):
                 tf.summary.scalar('latent acc', d_loss[1], step=step)
                 tf.summary.scalar('cat loss', cat_loss[0], step=step)
                 tf.summary.scalar('cat acc', cat_loss[1], step=step)
-                tf.summary.scalar('mse', g_loss[1], step=step)
-                tf.summary.histogram('style', style, step=step)
-
-                tf.summary.histogram('label', label, step=step)
-                tf.summary.histogram('prior style', real_latent+noise_real, step=step)
-                tf.summary.histogram('prior label',real_cat+cat_noise,step=step)
+                for i in range(len(aae.metrics_names)):
+                    tf.summary.scalar(
+                        aae.metrics_names[i], g_loss[i], step=step)
 
             step += 1
             step_pbar.update(1)
+
+        # record distribution after epoch
+        style, label = encoder(feature)
+        print(invalid)
+        print(cat_discriminator(label))
+        acc=BinaryAccuracy()
+        acc.update_state( invalid,cat_discriminator(label))
+
+        with train_summary_writer.as_default():
+            tf.summary.scalar('cat_bin_acc',acc.result(),step=step)
+            tf.summary.histogram(
+                'cat_disc_out', cat_discriminator(label), step=step)
+            tf.summary.histogram(
+                'lat_disc_out', latent_discriminator(style), step=step)
+            tf.summary.histogram('style', style, step=step)
+            tf.summary.histogram('label', label, step=step)
+            tf.summary.histogram(
+                'prior style', real_latent + noise_real, step=step)
+            tf.summary.histogram('prior label', real_cat, step=step)
+
         step_pbar.reset()
         postfix = {"latent_acc": 100 *
-                   d_loss[1], "cat_acc": 100 * cat_loss[1], "mse": g_loss[1]}
+                   d_loss[1], "cat_acc": 100 * cat_loss[1], "mse": g_loss[5]}
         pbar.set_postfix(postfix)
 
-    # other wise trace aae with dummy value and save model
+    # trace aae with dummy value and save model
     feature, label = list(packed_val_data.take(1).as_numpy_iterator())[0]
     feature = np.zeros((1, input_dim))
     label = np.zeros((num_classes))
@@ -304,10 +324,12 @@ def train_aae(configs):
             profiler_outdir=logdir)
 
     # tf.keras.models.save_model(aae, "../models/aae/test")
-    prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_cat_dist)
+    prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_clf_label)
     aae.save("../models/aae/{}_aae.h5".format(prefix))
     encoder.save("../models/aae/{}_encoder.h5".format(prefix))
     decoder.save("../models/aae/{}_decoder.h5".format(prefix))
+    latent_discriminator.save("../models/aae/{}_lat_disc.h5".format(prefix))
+    cat_discriminator.save("../models/aae/{}_cat_disc.h5".format(prefix))
 
 
 def eval(configs):
@@ -322,7 +344,7 @@ def eval(configs):
 
     draw_scatter = configs["draw_scatter"]
     latent_dim = configs["latent_dim"]
-    use_cat_dist = configs["use_cat_dist"]
+    use_clf_label = configs["use_clf_label"]
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
@@ -335,12 +357,11 @@ def eval(configs):
 
     scaler, unscaler = min_max_scaler_gen(datamin, datamax)
 
-    # original, jsma, fgsm=main()
     packed_test_data = test.map(PackNumericFeatures(
         field_names, num_classes, scaler=None))
 
     custom_objects = {'WcLayer': WcLayer}
-    prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_cat_dist)
+    prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_clf_label)
     aae = tf.keras.models.load_model(
         "../models/aae/{}_aae.h5".format(prefix), custom_objects=custom_objects)
     encoder = tf.keras.models.load_model(
@@ -348,11 +369,16 @@ def eval(configs):
     decoder = tf.keras.models.load_model(
         "../models/aae/{}_decoder.h5".format(prefix), custom_objects=custom_objects)
 
-    loss_func = tf.keras.losses.MeanSquaredError()
+    latent_discriminator = tf.keras.models.load_model(
+        "../models/aae/{}_lat_disc.h5".format(prefix))
+    cat_discriminator = tf.keras.models.load_model(
+        "../models/aae/{}_cat_disc.h5".format(prefix))
+
+
 
     steps = metadata["num_{}".format(subset)] // batch_size
 
-    total_mse = 0
+
     correct_label = 0
 
     #
@@ -386,36 +412,50 @@ def eval(configs):
         # write header for meta file
         meta_col = ["src_ip", "dst_ip", "idx", "fin_flag", "syn_flag",
                     "rst_flag", "psh_flag", "ack_flag", "urg_flag", "ece_flag", "cwr_flag"]
-        header = [['label', 'pred_label'] +
+        header = [['label', 'pred_label', "clf_label"] +
                   meta_col + ["dim1", "dim2", "dim3"]]
         np.savetxt(latent_label, header, delimiter="\t", fmt="%s")
 
         ch_labels = np.core.defchararray.add("ch_", attack_map)
-        ch_meta = np.stack((ch_labels, ch_labels, *list(np.zeros(ch_labels.shape) for i in range(
+        ch_meta = np.stack((ch_labels, ch_labels, ch_labels, *list(np.zeros(ch_labels.shape) for i in range(
             len(meta_col))), wc_weights[:, 0], wc_weights[:, 1], wc_weights[:, 2]), axis=1)
         np.savetxt(latent_label, ch_meta, delimiter="\t", fmt="%s")
 
-    label_mse = 0
 
+    classification_model = tf.keras.models.load_model(
+        "../models/{}_{}".format(configs["clf_type"], dataset_name))
+    correct_clf_label = 0
+    clf_real = 0
+
+    recon_mse = tf.keras.metrics.MeanSquaredError()
+    label_mse = tf.keras.metrics.MeanSquaredError()
+    normalized_mse=tf.keras.metrics.MeanSquaredError()
     for a, b in tf.data.Dataset.zip((packed_test_data, meta)).take(steps):
         features = a[0]
         labels = a[1]
 
-        input_feature=scaler(features['numeric'].numpy())
+        input_feature = scaler(features.numpy())
 
         style, pred_label = encoder(input_feature)
         cluster_head = wc_layer(pred_label)
         representation = cluster_head + style
         decoded = decoder(representation)
-        reconstruction=unscaler(decoded.numpy())
+        reconstruction = unscaler(decoded.numpy())
 
-        label_mse += loss_func(labels, pred_label)
+        label_mse.update_state(labels, pred_label)
         labels = np.argmax(labels, axis=1)
 
         pred_label = np.argmax(pred_label.numpy(), axis=1)
         correct_label += sum(labels == pred_label)
 
-        total_mse += loss_func(reconstruction, input_feature)
+        clf_label = classification_model(input_feature)
+        clf_label = np.argmax(clf_label.numpy(), axis=1)
+        correct_clf_label += sum(clf_label == pred_label)
+
+        clf_real += sum(clf_label == labels)
+
+        recon_mse.update_state(features.numpy(),reconstruction)
+        normalized_mse.update_state(decoded, input_feature)
         # encoded = aae.encoder(features['numeric'].numpy())
         # output_wrt_dim(vae., features['numeric'].numpy()[0], field_names)
         # forward_derviative(vae.decoder, encoded[0], ["dim{}".format(i) for i in range(latent_dim)])
@@ -429,14 +469,17 @@ def eval(configs):
             np.savetxt(latent_file, style, delimiter="\t")
             np.savetxt(representation_file, representation, delimiter="\t")
 
-            label_arr = np.stack((attack_mapper(labels), attack_mapper(pred_label), *list(
+            label_arr = np.stack((attack_mapper(labels), attack_mapper(pred_label), attack_mapper(clf_label), *list(
                 b[x].numpy() for x in b.keys()), style[:, 0], style[:, 1], style[:, 2]), axis=1)
 
             np.savetxt(latent_label, label_arr, delimiter="\t", fmt="%s")
 
-    print("average mse:", total_mse / steps)
-    print("average label acc:", correct_label / 1024 / steps)
-    print("average label mse: ", label_mse / steps)
+    print("average mse:", recon_mse.result().numpy())
+    print("average scaled mse:", normalized_mse.result().numpy())
+    print("average label mse: ", label_mse.result().numpy())
+    print("average real vs pred acc:", correct_label / batch_size / steps)
+    print("average clf vs pred acc:", correct_clf_label / batch_size / steps)
+    print("average clf vs real acc:", clf_real / batch_size / steps)
     if draw_scatter:
         # add cluster_head
         ax[0].scatter(wc_weights[:, 0], wc_weights[:, 1],
@@ -469,8 +512,16 @@ def eval(configs):
     # forward_derviative(decoder, encoded.numpy()[0], ["dim{}".format(i) for i in range(configs["latent_dim"])])
     # decoder_impact(decoder, [0.40617728,0.46284026,0.66842294])
 
-    # decode_representation(decoder, [[-0.8548355102539062,-1.2912317514419556,-0.7790226936340332]
-    # ,[	-0.6913829445838928,	-1.1900203227996826,	-0.7926429510116577]], field_names,unscaler)
+    # decode_representation(decoder, [[-0.13182508945465088,2.0659494400024414,-1.8378050327301025]
+    # ,[-0.10937637835741043,	2.082841157913208,-1.9012887477874756]], field_names,unscaler)
+
+
+def decode_representation_idx(idx1, idx2, field_names, filename):
+    df = pd.read_csv(filename, use_cols=field_names)
+    pt1 = df.loc[df['idx'] == idx1]
+    pt2 = df.loc[df['idx'] == idx2]
+    diffs = pt1 - pt2
+    print(diffs)
 
 
 def decode_representation(decoder, representation, feature_names, unscaler):
@@ -482,13 +533,13 @@ def decode_representation(decoder, representation, feature_names, unscaler):
     # for i in range(len(feature_names)):
     #     print(feature_names[i], unscaler(decoded)[1][i])
 
-    decoded=unscaler(decoded)
+    decoded = unscaler(decoded)
 
     print(decoded)
 
     diffs = decoded[0] - decoded[1]
 
-    f = plt.figure(figsize=(14, 14))
+    f = plt.figure(figsize=(20, 14))
     y_pos = list(range(len(feature_names)))
 
     print(diffs)
@@ -504,23 +555,25 @@ def decode_representation(decoder, representation, feature_names, unscaler):
 
 if __name__ == '__main__':
     training_configs = {
-        "batch_size": 1024,
+        "batch_size": 2048,
         "dataset_name": "ku_google_home",
         "epochs": 100,
         "latent_dim": 3,
         "reconstruction_weight": 0.7,
         "intermediate_dim": 24,
-        "use_cat_dist": False,
-        "distance_thresh": 0.1,
-        "filter": None
+        "use_clf_label": True,
+        "distance_thresh": 0.5,
+        "filter": None,
+        "clf_type": "3layer"
     }
     eval_configs = {
-        "batch_size": 1024,
+        "batch_size": 4096,
         "dataset_name": "ku_google_home",
         "latent_dim": 3,
         "draw_scatter": False,
-        "use_cat_dist": False,
-        "filter": None
+        "use_clf_label": True,
+        "filter": None,
+        "clf_type": "3layer"
     }
 
     train_aae(training_configs)

@@ -12,7 +12,7 @@ from tensorflow.keras.layers import (Dense, Embedding, Flatten, Input,
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.utils import plot_model
 from matplotlib.colors import to_hex, Normalize
-from train import PackNumericFeatures
+from input_utils import *
 import json
 from aae_dim_reduce import WcLayer
 matplotlib.use('Agg')
@@ -57,43 +57,56 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024, lab
         at output_name.
 
     """
+    subset="train"
+
     test = load_dataset(
-        dataset_name, sets=["test"], label_name=label_name, batch_size=batch_size)[0]
+        dataset_name, sets=[subset], label_name=label_name, batch_size=batch_size)[0]
 
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
 
     field_names = metadata["field_names"][:-1]
-    packed_test=test.map(PackNumericFeatures(field_names, metadata["num_classes"]))
+    min = np.array(metadata["col_min"][:-1])
+    max = np.array(metadata["col_max"][:-1])
+    normalizer,_ = min_max_scaler_gen(min, max)
+
+    packed_test=test.map(PackNumericFeatures(field_names, metadata["num_classes"], scaler=normalizer))
 
     print("evaluated on batch_size:",batch_size)
 
+
+
+
+
     model = load_model(model_path)
-    y_pred_all=np.array([])
-    labels_all=np.array([])
-    for features, labels in packed_test.take(metadata["num_test"]//batch_size):
+
+    y_pred_all=[]
+    labels_all=[]
+
+    for features, labels in packed_test.take(metadata["num_{}".format(subset)]//batch_size):
 
         # generate predictions and decode them
-        y_pred = model.predict(features, steps=1)
+        y_pred = model(features)
 
         y_pred = np.argmax(y_pred, axis=1)
         labels=np.argmax(labels, axis=1)
-        y_pred_all=np.concatenate((y_pred_all,y_pred))
-        labels_all=np.concatenate((labels_all,labels))
+        y_pred_all.extend(y_pred)
+        labels_all.extend(labels)
+
 
     attack_label = read_maps(
         "../data/{}/maps/{}.csv".format(dataset_name,label_name))
 
 
     # draws a heat_map of the classification report
-    report = classification_report(labels_all.flatten(), y_pred_all.flatten(), target_names=attack_label, labels=list(
+    report = classification_report(labels_all, y_pred_all, target_names=attack_label, labels=list(
         range(len(attack_label))), output_dict=True)
     draw_heatmap(report, output_name + "_heatmap")
 
     # save a text version of the report as well
     report = classification_report(
-        labels_all.flatten(), y_pred_all.flatten(), target_names=attack_label, labels=list(range(len(attack_label))))
+        labels_all, y_pred_all, target_names=attack_label, labels=list(range(len(attack_label))))
     report_file = open("../experiment/reports/{}.txt".format(output_name), "w")
     report_file.write(report)
     report_file.close()

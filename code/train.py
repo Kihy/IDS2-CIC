@@ -23,28 +23,6 @@ matplotlib.use('Agg')
 
 
 
-def min_max_scaler_gen(min,max):
-    def min_max_scaler(data):
-        """
-        scales the input according to metadata.
-
-        Args:
-            feature (ordered dict): feature from tf.dataset.
-            label (ordered dict): labels.
-
-        Returns:
-            ordered dict, ordered dict: the scaled input and label with same size as input.
-
-        """
-        data_range=max-min
-        # replace 0 with 1 so it does not produce nan
-        data_range=np.where(data_range!=0, data_range, 1)
-
-        x_std = (data - min) /data_range
-
-
-        return x_std
-    return min_max_scaler
 
 
 def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50, label_name="Label"):
@@ -72,30 +50,21 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50, lab
 
     num_classes = metadata["num_classes"]
     field_names=metadata["field_names"][:-1]
-
-    packed_train_data = train.map(
-        PackNumericFeatures(field_names,num_classes))
-    packed_val_data = val.map(PackNumericFeatures(field_names, num_classes))
-
-    # example_batch, labels_batch = next(iter(packed_train_data))
-
     min = np.array(metadata["col_min"][:-1])
     max = np.array(metadata["col_max"][:-1])
 
+    normalizer,_ = min_max_scaler_gen(min, max)
+    packed_train_data = train.map(
+        PackNumericFeatures(field_names,num_classes, scaler=normalizer))
+    packed_val_data = val.map(PackNumericFeatures(field_names, num_classes, scaler=normalizer))
+
+    # example_batch, labels_batch = next(iter(packed_train_data))
+
     input_dim=len(field_names)
 
-    normalizer = min_max_scaler_gen(min, max)
-    numeric_column = tf.feature_column.numeric_column(
-        'numeric', normalizer_fn=normalizer, shape=(input_dim,))
-    numeric_columns = [numeric_column]
-    numeric_layer = tf.keras.layers.DenseFeatures(numeric_columns, name='scaler')
+    inputs=tf.keras.layers.Input(name='input', shape=(input_dim,), dtype='float32')
 
-    inputs = {
-        'numeric': tf.keras.layers.Input(name='numeric', shape=(input_dim,), dtype='float32')
-    }
-    # inputs=tf.keras.layers.Input(name='input', shape=(input_dim,), dtype='float32')
-    dense_input = numeric_layer(inputs)
-    dense = Dense(41, activation='relu')(dense_input)
+    dense = Dense(41, activation='relu')(inputs)
     dense1 = Dense(41, activation='relu')(dense)
     dense2 = Dense(41, activation='relu')(dense1)
     output = Dense(num_classes, activation='sigmoid')(dense)
