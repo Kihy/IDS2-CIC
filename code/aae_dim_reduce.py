@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from tensorboard.plugins.hparams import api as hp
 from tensorflow.keras.constraints import unit_norm
@@ -83,11 +84,11 @@ def build_encoder(original_dim, latent_dim, intermediate_dim, num_classes, kerne
 
     x = Dense(intermediate_dim, name="encoder_dense1",
               kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(input_layer)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="encoder_act1")(x)
     x = Dense(intermediate_dim, name="encoder_dense2",
               kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="encoder_act2")(x)
 
     latent_repr = Dense(latent_dim, activation="linear",
@@ -114,11 +115,11 @@ def build_decoder(original_dim, latent_dim, intermediate_dim, num_classes, kerne
     repr_input = Input(shape=(latent_dim,), name="latent_input")
     x = Dense(intermediate_dim, name="decoder_dense1",
               kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(repr_input)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="decoder_act1")(x)
     x = Dense(intermediate_dim, name="decoder_dense2",
               kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)(x)
-    # x = BatchNormalization()(x)
+    x = BatchNormalization()(x)
     x = LeakyReLU(alpha=0.2, name="decoder_act2")(x)
     output = Dense(original_dim, activation="linear", name="decoder_out")(x)
 
@@ -284,13 +285,8 @@ def train_aae(configs):
 
         # record distribution after epoch
         style, label = encoder(feature)
-        print(invalid)
-        print(cat_discriminator(label))
-        acc=BinaryAccuracy()
-        acc.update_state( invalid,cat_discriminator(label))
 
         with train_summary_writer.as_default():
-            tf.summary.scalar('cat_bin_acc',acc.result(),step=step)
             tf.summary.histogram(
                 'cat_disc_out', cat_discriminator(label), step=step)
             tf.summary.histogram(
@@ -410,7 +406,7 @@ def eval(configs):
         np.savetxt(latent_file, wc_weights, delimiter="\t")
         np.savetxt(representation_file, wc_weights, delimiter="\t")
         # write header for meta file
-        meta_col = ["src_ip", "dst_ip", "idx", "fin_flag", "syn_flag",
+        meta_col = ["src_ip", "dst_ip", "timestamp","idx","fin_flag", "syn_flag",
                     "rst_flag", "psh_flag", "ack_flag", "urg_flag", "ece_flag", "cwr_flag"]
         header = [['label', 'pred_label', "clf_label"] +
                   meta_col + ["dim1", "dim2", "dim3"]]
@@ -512,37 +508,40 @@ def eval(configs):
     # forward_derviative(decoder, encoded.numpy()[0], ["dim{}".format(i) for i in range(configs["latent_dim"])])
     # decoder_impact(decoder, [0.40617728,0.46284026,0.66842294])
 
-    # decode_representation(decoder, [[-0.13182508945465088,2.0659494400024414,-1.8378050327301025]
-    # ,[-0.10937637835741043,	2.082841157913208,-1.9012887477874756]], field_names,unscaler)
+    # decode_representation(decoder, [[0.850888729095459  ,	-0.7151963710784912,0.25660669803619385]
+    # ,[0.962908148765564,-0.7504543662071228,	0.20932671427726746]], field_names,unscaler, "clusters")
+    decode_representation_idx(418180,52720,field_names, "../ku_httpflooding/[HTTP_Flooding]GoogleHome_thread_800.csv", "same_cluster")
 
 
-def decode_representation_idx(idx1, idx2, field_names, filename):
-    df = pd.read_csv(filename, use_cols=field_names)
-    pt1 = df.loc[df['idx'] == idx1]
-    pt2 = df.loc[df['idx'] == idx2]
-    diffs = pt1 - pt2
-    print(diffs)
+def decode_representation_idx(idx1, idx2, field_names, filename, suffix):
+    df = pd.read_csv(filename, usecols=field_names+["idx"])
+    df['protocol_type'] = df['protocol_type'].astype("category")
+    df['protocol_type'] = df['protocol_type'].cat.codes
+
+    pt1 = df.loc[df['idx'] == idx1].drop(columns=["idx"]).to_numpy()
+    pt2 = df.loc[df['idx'] == idx2].drop(columns=["idx"]).to_numpy()
+
+    diffs = pt1-pt2
+
+    f = plt.figure(figsize=(20, 14))
+    y_pos = list(range(len(field_names)))
+
+    plt.barh(y_pos, diffs[0])
+    plt.yticks(y_pos, field_names,
+               horizontalalignment='right')
+
+    for index, value in enumerate(diffs[0]):
+        plt.text(value, index, "{:.3f}".format(value))
+    plt.savefig("../experiment/aae_vis/point_diff_{}.png".format(suffix))
 
 
-def decode_representation(decoder, representation, feature_names, unscaler):
+def decode_representation(decoder, representation, feature_names, unscaler,filename):
     decoded = decoder(np.array(representation))
-
-    # for i in range(len(feature_names)):
-    #     print(feature_names[i], unscaler(decoded)[0][i])
-    #
-    # for i in range(len(feature_names)):
-    #     print(feature_names[i], unscaler(decoded)[1][i])
-
     decoded = unscaler(decoded)
-
-    print(decoded)
-
     diffs = decoded[0] - decoded[1]
-
     f = plt.figure(figsize=(20, 14))
     y_pos = list(range(len(feature_names)))
 
-    print(diffs)
 
     plt.barh(y_pos, diffs.numpy())
     plt.yticks(y_pos, feature_names,
@@ -550,31 +549,31 @@ def decode_representation(decoder, representation, feature_names, unscaler):
 
     for index, value in enumerate(diffs.numpy()):
         plt.text(value, index, "{:.3f}".format(value))
-    plt.savefig("../experiment/aae_vis/point_diff.png")
+    plt.savefig("../experiment/aae_vis/point_diff_{}.png".format(filename))
 
 
 if __name__ == '__main__':
     training_configs = {
         "batch_size": 2048,
-        "dataset_name": "ku_google_home",
+        "dataset_name": "ku_flooding_800",
         "epochs": 100,
         "latent_dim": 3,
         "reconstruction_weight": 0.7,
         "intermediate_dim": 24,
-        "use_clf_label": True,
+        "use_clf_label": False,
         "distance_thresh": 0.5,
         "filter": None,
         "clf_type": "3layer"
     }
     eval_configs = {
         "batch_size": 4096,
-        "dataset_name": "ku_google_home",
+        "dataset_name": "ku_flooding_800",
         "latent_dim": 3,
         "draw_scatter": False,
-        "use_clf_label": True,
+        "use_clf_label": False,
         "filter": None,
         "clf_type": "3layer"
     }
 
-    train_aae(training_configs)
+    # train_aae(training_configs)
     eval(eval_configs)
