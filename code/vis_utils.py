@@ -76,3 +76,23 @@ def vis_diff(file1,file2,out_file):
     axes=diff.hist(figsize=(25, 25),log=True)
 
     plt.savefig(out_file)
+
+def vis_clusters(metadata, label_name, datafile, field_names):
+    metadata_df=pd.read_csv(metadata, sep='\t', usecols=["label","idx"])
+    data_df = pd.read_csv(datafile, usecols=field_names+["idx"])
+    metadata_df=metadata_df[metadata_df["label"].isin(label_name)]
+    merge_df=metadata_df.merge(data_df,how="left", on="idx")
+    n_cols=6
+    n_rows=np.math.ceil(len(field_names)/n_cols)
+    f,ax=plt.subplots(figsize=(20, 20),nrows=n_rows,ncols=n_cols)
+
+    for i in label_name:
+        tmp=merge_df[merge_df["label"]==i]
+        for j in range(len(field_names)):
+            r=j//n_cols
+            c=j-n_cols*r
+            ax[r][c].hist(tmp[field_names[j]], alpha=0.5, label=i)
+            ax[r][c].set_title(field_names[j])
+
+    plt.tight_layout()
+    plt.savefig("../experiment/aae_vis/cluster_vis_{}.png".format(label_name))

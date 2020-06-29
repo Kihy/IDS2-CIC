@@ -1,0 +1,13 @@
+192.168.10.1) Router
+192.168.10.2) NUGU
+192.168.10.3) EZVIZ home camera
+192.168.10.4) Philips Hue
+192.168.10.5) Google Home MINI
+192.168.10.6) TP-LInk home camera
+192.168.10.7) Attacker's PC
+192.168.10.10) A cell phone
+192.168.10.11) A cell phone
+192.168.10.12) A cell phone
+192.168.10.13) A cell phone
+121.53.216.31) Daum Kakao Corp.
+211.188.147.64) SK Telecom Corp.  

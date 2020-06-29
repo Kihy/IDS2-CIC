@@ -1,21 +1,25 @@
 import csv
+import json
 import sys
-import joblib
-import matplotlib
-import matplotlib.pyplot as plt
+
 import numpy as np
 import pandas as pd
 import tensorflow as tf
 import tensorflow.keras.backend as K
-from input_utils import *
 from numpy import genfromtxt
-from sklearn import preprocessing
-import json
-from input_utils import load_dataset
-matplotlib.use('Agg')
 from tqdm import tqdm
 
-def find_theta(metadata, percent_theta, fixed=[], scale=True):
+import joblib
+import matplotlib
+import matplotlib.pyplot as plt
+from input_utils import *
+from input_utils import load_dataset
+from sklearn import preprocessing
+
+matplotlib.use('Agg')
+
+
+def find_theta(metadata, percent_theta, fixed=[]):
     """
     finding the theta used in adversarial perturbation, as different data types
     handle different different theta. For symbolic data theta is set to difference between each of
@@ -23,23 +27,21 @@ def find_theta(metadata, percent_theta, fixed=[], scale=True):
     percent_theta. For discrete data it changes by percent_theta of the range rounded evenly to
     nearest integer value before scaling, if data_range is too small treat like symbolic data.
     If fixed is specified, the theta at that index is set to 0
-    If scale, theta is calculated between range 0 and 1, otherwise it is between col_min and col_max
 
     Args:
         metadata (dictionary): metadata for the dataset.
         percent_theta (float): how much continuous attribute change as percentage (0~1).
         fixed (int list): index of feature to be fixed
-        scale (boolean): whether theta is scaled.
 
     Returns:
         array: the theta values for each feature.
 
     """
 
-    data_range = np.array(metadata["col_max"])-np.array(metadata["col_min"])
+    data_range = np.array(metadata["col_max"]) - np.array(metadata["col_min"])
 
     # -1 so we dont include label field
-    num_fields=len(metadata["field_names"])-1
+    num_fields = len(metadata["field_names"]) - 1
     thetas = np.zeros((num_fields,))
 
     for index in range(num_fields):
@@ -57,12 +59,11 @@ def find_theta(metadata, percent_theta, fixed=[], scale=True):
             # in range is too small, treat like symbolic data
             if theta == 0:
                 theta = 1 / data_range[index]
-        #without scaling, multiply by data_range
-        if not scale:
-            theta*=data_range[index]
+
         thetas[index] = theta
 
     return thetas
+
 
 def generate_forward_derivative(input_sample, model, num_classes):
     """calculates the forward derivative of model with respect to input for each
@@ -132,7 +133,7 @@ def generate_saliency_map(gradients, target, map_type="increase"):
     return saliency_map
 
 
-def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100, scale=True):
+def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100):
     """applies jacobian saliency map attack on input_sample
 
     Args:
@@ -142,13 +143,12 @@ def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100, sca
         thetas (array): how much perturbation to add in each step for each attribute.
         metadata (dict): metadata of dataset
         max_iter (int): maximum number of iterations to carry out.
-        scale (boolean): same as scale in find_theta function.
 
     Returns:
         array, int, int: the modified adversarial sample, number of iterations taken, prediction outcome
 
     """
-    input_shape=input_sample.shape[1]
+    input_shape = input_sample.shape[1]
     perturbations = np.zeros(input_shape)
     x_adv = input_sample
     # iterate through max_iteration
@@ -160,20 +160,18 @@ def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100, sca
             break
 
         # find forward gradient for each output class
-        gradients = generate_forward_derivative(x_adv, model, metadata["num_classes"])
+        gradients = generate_forward_derivative(
+            x_adv, model, metadata["num_classes"])
 
         # filter out features that cannot be increased based on current value
         field = x_adv.numpy()
 
         # make sure it does not increase more than 1 or col_max
-        if scale:
-            inc_mask = (field <= 1 - thetas).astype(int)
-            dec_mask = (field >= thetas).astype(int)
-        else:
-            inc_mask=(field <= metadata["col_max"][:-1] - thetas).astype(int)
-            dec_mask = (field >= thetas + metadata["col_min"][:-1]).astype(int)
-        # make sure it would not be less than 0 or col_min
 
+        inc_mask = (field <= 1 - thetas).astype(int)
+        dec_mask = (field >= thetas).astype(int)
+
+        # make sure it would not be less than 0 or col_min
 
         # check if any values in thetas are 0
         theta_mask = (thetas != 0).astype(int)
@@ -221,21 +219,28 @@ def jsma_attack(input_sample, target, model, thetas, metadata, max_iter=100, sca
     # print("x_adv:", x_adv)
     # print("prediction:", np.argmax(model.predict(x_adv, steps=1)))
     # print(i)
-    prediction=np.argmax(model.predict(x_adv,steps=1))
+    prediction = np.argmax(model.predict(x_adv, steps=1))
     # draw_perturbation(input_sample.numpy()[0], x_adv.numpy()[0], "../visualizations/adversarial/adv_stack_jsma.png")
 
     return x_adv, i, prediction
 
-def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01, fixed=[],scale=True, label_name="Label"):
+
+def adversarial_generation(dataset_name, model_path, target_class, set_name, num_samples=100, theta=0.01, fixed=[], label_name="Label", alter=None):
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
 
-    batch_size=1
+    batch_size = 1
     # remove label field
-    field_names=metadata["field_names"][:-1]
-    num_classes=metadata["num_classes"]
-    data=load_dataset(dataset_name, sets=[set_name], label_name=label_name, batch_size=batch_size)[0]
-    data=data.unbatch().filter(lambda feature, label: label!=target_class).batch(batch_size)
+    field_names = metadata["field_names"][:-1]
+    num_classes = metadata["num_classes"]
+    data = load_dataset(dataset_name, sets=[
+                        set_name], label_name=label_name, batch_size=batch_size)[0]
+
+    if alter is not None:
+        data = data.unbatch().filter(lambda feature, label: label==alter).batch(batch_size)
+    else:
+        data = data.unbatch().filter(lambda feature, label: label !=
+                                     target_class).batch(batch_size)
     packed_data = data.map(PackNumericFeatures(field_names))
     # take 1
     # sample, label = next(iter(packed_val_data))
@@ -243,48 +248,58 @@ def adversarial_generation(dataset_name, model_path, target_class, set_name, num
     print("loading model")
     model = tf.keras.models.load_model(model_path)
 
-    fixed_index=field_name_search(metadata["field_names"], fixed)
+    fixed_index = field_name_search(metadata["field_names"], fixed)
     print("finding theta")
-    thetas = find_theta(metadata, theta, fixed_index,scale=scale)
-
+    thetas = find_theta(metadata, theta, fixed_index)
     print("genrating attack label map")
     maps = genfromtxt(
-        "../data/{}/maps/{}.csv".format(dataset_name,label_name), delimiter=',')
+        "../data/{}/maps/{}.csv".format(dataset_name, label_name), delimiter=',')
 
     print("creating dataframes")
-    adv_col_names=metadata["field_names"]+["Iterations", "Adv Label"]
-    adv_df=pd.DataFrame(columns=adv_col_names)
-    pert_df=pd.DataFrame(columns=field_names)
-    scaler=model.get_layer("scaler")
+    adv_col_names = metadata["field_names"] + ["Iterations", "Adv Label"]
+    adv_df = pd.DataFrame(columns=adv_col_names)
+    pert_df = pd.DataFrame(columns=field_names)
+    min = np.array(metadata["col_min"][:-1])
+    max = np.array(metadata["col_max"][:-1])
+
+    scaler, unscaler = min_max_scaler_gen(min, max)
 
     print("starting generation")
     with tqdm(total=num_samples) as pbar:
         for sample, label in packed_data.take(num_samples):
-            jsma_sample, num_iter, pred= jsma_attack(sample["numeric"],
-                               target_class, model, thetas, metadata, max_iter=200, scale=scale)
 
-            row=jsma_sample.numpy()
-            row=np.append(row, [label.numpy()[0], num_iter, pred])
-            adv_df=adv_df.append(pd.Series(row, index=adv_col_names),ignore_index=True)
+            scaled_sample=scaler(sample)
+            jsma_sample, num_iter, pred = jsma_attack(scaled_sample,
+                                                      target_class, model, thetas, metadata, max_iter=200)
+            unscaled_sample=unscaler(jsma_sample)
+            row = unscaled_sample.numpy()
+            row = np.append(row, [label.numpy()[0], num_iter, pred])
+            adv_df = adv_df.append(
+                pd.Series(row, index=adv_col_names), ignore_index=True)
 
-            pert=jsma_sample.numpy()-sample["numeric"].numpy()
-            pert_df=pert_df.append(pd.Series(pert[0], index=field_names), ignore_index=True)
+            pert = unscaled_sample.numpy() - sample.numpy()
+            pert_df = pert_df.append(
+                pd.Series(pert[0], index=field_names), ignore_index=True)
             # scaled_sample=scaler(sample)
             # jsma={'numeric':jsma_sample}
             # scaled_jsma=scaler(jsma)
             # draw_perturbation(scaled_sample, scaled_jsma, "../experiment/pert_vis/test.png", field_names)
             pbar.update(1)
     print("finished all JSMA samples")
-    adv_df.to_csv("../experiment/adv_data/{}_{}.csv".format(dataset_name,set_name), index=False)
-    pert_df.to_csv("../experiment/adv_data/{}_{}_pert.csv".format(dataset_name,set_name), index=False)
+    adv_df.to_csv(
+        "../experiment/adv_data/{}_{}.csv".format(dataset_name, set_name), index=False)
+    pert_df.to_csv(
+        "../experiment/adv_data/{}_{}_pert.csv".format(dataset_name, set_name), index=False)
     # draw distributions of each attribute for all data
     axes = pert_df.hist(figsize=(50, 50))
 
-    plt.savefig("../experiment/pert_vis/{}_{}_hist.png".format(dataset_name,set_name))
+    plt.savefig(
+        "../experiment/pert_vis/{}_{}_hist.png".format(dataset_name, set_name))
 
 
 def tensor_to_numpy(x):
     return x.numpy()[0]
+
 
 def field_name_search(field_names, search_strings):
     """
@@ -302,16 +317,17 @@ def field_name_search(field_names, search_strings):
         list: a unique list of all feature indexes matched by search_strings.
 
     """
-    results=[]
-    num_fields=len(field_names)
+    results = []
+    num_fields = len(field_names)
     for string in search_strings:
-        matching=[s for s in range(num_fields) if string in field_names[s]]
-        results+=matching
+        matching = [s for s in range(num_fields) if string in field_names[s]]
+        results += matching
 
     # for i in range(num_fields):
     #     print(field_names[i], i in results)
 
     return list(set(results))
+
 
 def draw_perturbation(ori, adv, output_file_name, field_names):
     """
@@ -328,11 +344,10 @@ def draw_perturbation(ori, adv, output_file_name, field_names):
 
     """
 
+    ori = tensor_to_numpy(ori)
+    adv = tensor_to_numpy(adv)
 
-    ori=tensor_to_numpy(ori)
-    adv=tensor_to_numpy(adv)
-
-    diff = adv-ori
+    diff = adv - ori
 
     min = np.minimum(ori, adv)
     y_pos = list(range(diff.shape[0]))

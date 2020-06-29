@@ -23,7 +23,7 @@ from input_utils import (PackNumericFeatures, load_dataset, min_max_scaler_gen,
 from sklearn import svm
 from sklearn.metrics import accuracy_score
 from vae import forward_derviative
-
+from vis_utils import *
 
 @tf.function
 def tracer(model, inputs):
@@ -464,9 +464,8 @@ def eval(configs):
         else:
             np.savetxt(latent_file, style, delimiter="\t")
             np.savetxt(representation_file, representation, delimiter="\t")
-
             label_arr = np.stack((attack_mapper(labels), attack_mapper(pred_label), attack_mapper(clf_label), *list(
-                b[x].numpy() for x in b.keys()), style[:, 0], style[:, 1], style[:, 2]), axis=1)
+                b[x].numpy() for x in b.keys()), representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
 
             np.savetxt(latent_label, label_arr, delimiter="\t", fmt="%s")
 
@@ -476,6 +475,10 @@ def eval(configs):
     print("average real vs pred acc:", correct_label / batch_size / steps)
     print("average clf vs pred acc:", correct_clf_label / batch_size / steps)
     print("average clf vs real acc:", clf_real / batch_size / steps)
+
+    encode_adv(
+        "../experiment/adv_data/{}_{}.csv".format(dataset_name, "train"),encoder, scaler, wc_layer, field_names, num_classes, representation_file, latent_label,attack_mapper)
+
     if draw_scatter:
         # add cluster_head
         ax[0].scatter(wc_weights[:, 0], wc_weights[:, 1],
@@ -510,7 +513,25 @@ def eval(configs):
 
     # decode_representation(decoder, [[0.850888729095459  ,	-0.7151963710784912,0.25660669803619385]
     # ,[0.962908148765564,-0.7504543662071228,	0.20932671427726746]], field_names,unscaler, "clusters")
-    decode_representation_idx(418180,52720,field_names, "../ku_httpflooding/[HTTP_Flooding]GoogleHome_thread_800.csv", "same_cluster")
+    # decode_representation_idx(418180,52720,field_names, "../ku_httpflooding/[HTTP_Flooding]GoogleHome_thread_800.csv", "same_cluster")
+    # vis_clusters("../metadata-edited.tsv",["cluster1","cluster2"],"../ku_httpflooding/[HTTP_Flooding]GoogleHome_thread_800.csv",field_names)
+
+def encode_adv(adv_path, encoder, scaler, wc_layer, field_names, num_classes,representation_file, latent_label, attack_mapper):
+    data = tf.data.experimental.make_csv_dataset(adv_path, batch_size=1000, select_columns=field_names+["Adv Label"], label_name="Adv Label")
+    packed_data = data.map(PackNumericFeatures(field_names, num_classes ))
+
+    for features,labels in packed_data.take(1):
+        input_feature = scaler(features.numpy())
+
+        style, pred_label = encoder(input_feature)
+        cluster_head = wc_layer(pred_label)
+        representation = cluster_head + style
+        pred_label = np.argmax(pred_label.numpy(), axis=1)
+
+        labels = np.argmax(labels.numpy(), axis=1)
+        np.savetxt(representation_file, representation, delimiter="\t")
+        np.savetxt(latent_label, np.stack((attack_mapper(labels), attack_mapper(pred_label)), axis=1), delimiter="\t", fmt="%s")
+
 
 
 def decode_representation_idx(idx1, idx2, field_names, filename, suffix):

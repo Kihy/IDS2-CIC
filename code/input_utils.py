@@ -86,6 +86,8 @@ class PackNumericFeatures(object):
 
 
         if self.num_classes != None:
+            if labels.dtype=="float32":
+                labels=tf.cast(labels, "int32")
             labels = tf.one_hot(labels, self.num_classes)
 
         return numeric_features, labels
@@ -525,7 +527,7 @@ class DataReader:
                 for chunk in df_chunk:
 
                     if self.use_filename_as_label:
-                        chunk[self.label_col] = file.split(".")[0]
+                        chunk[self.label_col] = chunk[self.label_col]+file.split(".")[0]
 
                     if len(self.protocols) > 0:
                         chunk = chunk[chunk["protocol_type"].isin(
