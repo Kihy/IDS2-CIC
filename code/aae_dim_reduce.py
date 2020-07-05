@@ -25,6 +25,7 @@ from sklearn.metrics import accuracy_score
 from vae import forward_derviative
 from vis_utils import *
 
+
 @tf.function
 def tracer(model, inputs):
     output = model(inputs)
@@ -101,7 +102,7 @@ def build_encoder(original_dim, latent_dim, intermediate_dim, num_classes, kerne
 
 def build_discriminator(input_shape, name="discriminator", int_activation="relu", output_activation="sigmoid"):
     disc_input = Input(shape=(input_shape, ), name="disc_input")
-    x = Dense(24, activation=int_activation,name="disc_dense1")(disc_input)
+    x = Dense(24, activation=int_activation, name="disc_dense1")(disc_input)
     # x = BatchNormalization()(x)
     # x = LeakyReLU(alpha=0.2, name="disc_act1")(x)
     x = Dense(12, activation=int_activation, name="disc_dense2")(x)
@@ -134,7 +135,7 @@ def build_aae_dim_reduce(original_dim, intermediate_dim, latent_dim, num_classes
                             intermediate_dim=intermediate_dim, num_classes=num_classes, kernel_constraint=kernel_constraint, activity_regularizer=activity_regularizer)
 
     latent_discriminator = build_discriminator(
-        latent_dim, name="latent_disc", int_activation="sigmoid",output_activation="sigmoid")
+        latent_dim, name="latent_disc", int_activation="sigmoid", output_activation="sigmoid")
     latent_discriminator.compile(loss='binary_crossentropy',
                                  optimizer='adam', metrics=[BinaryAccuracy()])
     latent_discriminator.trainable = False
@@ -329,14 +330,28 @@ def train_aae(configs):
 
 
 def eval(configs):
+    """
+    evaluate the autoencoder, including generation of tsv files, mse of reconstruction and label accuracy.
+
+    Args:
+        configs (dict): configurations of the autoencoder.
+
+    Returns:
+        None
+
+    """
+
+    # load configs and data
     batch_size = configs["batch_size"]
     dataset_name = configs["dataset_name"]
     filter = configs["filter"]
+    tsv_gen = configs["tsv_gen"]
+    encode_adv=configs["encode_adv"]
     subset = "test"
     # dont shuffle since its already shuffled in datareader
     test, meta = load_dataset(
         dataset_name, sets=[subset], include_meta=True,
-        label_name="category", batch_size=batch_size, filter=filter, shuffle=False)[0]
+        label_name="category", batch_size=batch_size, shuffle=False)[0]
 
     draw_scatter = configs["draw_scatter"]
     latent_dim = configs["latent_dim"]
@@ -356,6 +371,7 @@ def eval(configs):
     packed_test_data = test.map(PackNumericFeatures(
         field_names, num_classes, scaler=None))
 
+    # load models
     custom_objects = {'WcLayer': WcLayer}
     prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_clf_label)
     aae = tf.keras.models.load_model(
@@ -370,29 +386,27 @@ def eval(configs):
     cat_discriminator = tf.keras.models.load_model(
         "../models/aae/{}_cat_disc.h5".format(prefix))
 
-
+    classification_model = tf.keras.models.load_model(
+        "../models/{}_{}".format(configs["clf_type"], dataset_name))
 
     steps = metadata["num_{}".format(subset)] // batch_size
 
-
-    correct_label = 0
-
-    #
-    # #get wc layer
+    # get wc layer weights as clusterheads
     wc_layer = aae.get_layer("wc_layer")
     wc_weights = wc_layer.weights[0].numpy()
     print("cluster_heads:", wc_weights)
-    #
 
+    # setup plt figures if draw_scatter
     if draw_scatter:
         fig, ax = plt.subplots(2, 1, figsize=(10, 20))
         ax[0].set_title("style")
         ax[1].set_title("representations")
-    else:
-        # visualize stuff
-        latent_file = open(
+
+    if tsv_gen:
+        # set up file handler for tsv files
+        style_file = open(
             "../experiment/aae_vis/{}_style.tsv".format(prefix), "w")
-        latent_label = open(
+        label_file = open(
             "../experiment/aae_vis/{}_labels.tsv".format(prefix), "w")
         representation_file = open(
             "../experiment/aae_vis/{}_representation.tsv".format(prefix), "w")
@@ -400,84 +414,129 @@ def eval(configs):
         # read attack map for labelling
         attack_map = read_maps(
             "../data/{}/maps/category.csv".format(dataset_name))
-        attack_mapper = np.vectorize(lambda x: attack_map[x])
+        # vectorize attack map with prefixes. prefix used to distinguish adversarial samples
+        attack_mapper = np.vectorize(lambda x, pref: pref + attack_map[x])
 
         # write clusterheads to style and representation file
-        np.savetxt(latent_file, wc_weights, delimiter="\t")
+        np.savetxt(style_file, wc_weights, delimiter="\t")
         np.savetxt(representation_file, wc_weights, delimiter="\t")
-        # write header for meta file
-        meta_col = ["src_ip", "dst_ip", "timestamp","idx","fin_flag", "syn_flag",
-                    "rst_flag", "psh_flag", "ack_flag", "urg_flag", "ece_flag", "cwr_flag"]
-        header = [['label', 'pred_label', "clf_label"] +
-                  meta_col + ["dim1", "dim2", "dim3"]]
-        np.savetxt(latent_label, header, delimiter="\t", fmt="%s")
 
+        # write header for meta file
+        meta_col = metadata["meta_col"]
+        header = [['true_label', 'aae_pred_label', "clf_label"] +
+                  meta_col + ["dim1", "dim2", "dim3"]]
+        np.savetxt(label_file, header, delimiter="\t", fmt="%s")
+
+        # write meta file for cluster heads, labels are prefixed by ch_ and meta_cols are set to 0
         ch_labels = np.core.defchararray.add("ch_", attack_map)
         ch_meta = np.stack((ch_labels, ch_labels, ch_labels, *list(np.zeros(ch_labels.shape) for i in range(
             len(meta_col))), wc_weights[:, 0], wc_weights[:, 1], wc_weights[:, 2]), axis=1)
-        np.savetxt(latent_label, ch_meta, delimiter="\t", fmt="%s")
+        np.savetxt(label_file, ch_meta, delimiter="\t", fmt="%s")
 
+    # label accuracy
+    aae_true_acc = tf.keras.metrics.CategoricalAccuracy()
+    clf_aae_acc = tf.keras.metrics.CategoricalAccuracy()
+    clf_true_acc = tf.keras.metrics.CategoricalAccuracy()
 
-    classification_model = tf.keras.models.load_model(
-        "../models/{}_{}".format(configs["clf_type"], dataset_name))
-    correct_clf_label = 0
-    clf_real = 0
-
+    # mse
     recon_mse = tf.keras.metrics.MeanSquaredError()
     label_mse = tf.keras.metrics.MeanSquaredError()
-    normalized_mse=tf.keras.metrics.MeanSquaredError()
+    normalized_mse = tf.keras.metrics.MeanSquaredError()
+
     for a, b in tf.data.Dataset.zip((packed_test_data, meta)).take(steps):
         features = a[0]
         labels = a[1]
 
         input_feature = scaler(features.numpy())
-
-        style, pred_label = encoder(input_feature)
-        cluster_head = wc_layer(pred_label)
-        representation = cluster_head + style
+        style, representation, pred_label = encode(
+            encoder, wc_layer, input_feature)
         decoded = decoder(representation)
         reconstruction = unscaler(decoded.numpy())
+        clf_label = classification_model(input_feature)
 
         label_mse.update_state(labels, pred_label)
-        labels = np.argmax(labels, axis=1)
-
-        pred_label = np.argmax(pred_label.numpy(), axis=1)
-        correct_label += sum(labels == pred_label)
-
-        clf_label = classification_model(input_feature)
-        clf_label = np.argmax(clf_label.numpy(), axis=1)
-        correct_clf_label += sum(clf_label == pred_label)
-
-        clf_real += sum(clf_label == labels)
-
-        recon_mse.update_state(features.numpy(),reconstruction)
+        recon_mse.update_state(features.numpy(), reconstruction)
         normalized_mse.update_state(decoded, input_feature)
+
+        aae_true_acc.update_state(labels, pred_label)
+        clf_aae_acc.update_state(clf_label, pred_label)
+        clf_true_acc.update_state(clf_label, labels)
+
         # encoded = aae.encoder(features['numeric'].numpy())
         # output_wrt_dim(vae., features['numeric'].numpy()[0], field_names)
         # forward_derviative(vae.decoder, encoded[0], ["dim{}".format(i) for i in range(latent_dim)])
         # eval_with_different_label(aae, features["numeric"].numpy(), labels)
         if draw_scatter:
+            # draw scatter of each batch
             ax[0].scatter(style.numpy()[:, 0], style.numpy()
                           [:, 1], c=labels, s=1)
             ax[1].scatter(representation.numpy()[:, 0],
                           representation.numpy()[:, 1], c=labels, s=1)
-        else:
-            np.savetxt(latent_file, style, delimiter="\t")
-            np.savetxt(representation_file, representation, delimiter="\t")
-            label_arr = np.stack((attack_mapper(labels), attack_mapper(pred_label), attack_mapper(clf_label), *list(
-                b[x].numpy() for x in b.keys()), representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
 
-            np.savetxt(latent_label, label_arr, delimiter="\t", fmt="%s")
+        if tsv_gen:
+            # generate tsv file for each batch
+            np.savetxt(style_file, style, delimiter="\t")
+            np.savetxt(representation_file, representation, delimiter="\t")
+            label_arr = np.stack((attack_mapper(np.argmax(labels, axis=1), ""), attack_mapper(np.argmax(pred_label, axis=1), ""), attack_mapper(np.argmax(clf_label, axis=1), ""), *list(
+                b[x].numpy() for x in b.keys()), representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
+            np.savetxt(label_file, label_arr, delimiter="\t", fmt="%s")
 
     print("average mse:", recon_mse.result().numpy())
     print("average scaled mse:", normalized_mse.result().numpy())
     print("average label mse: ", label_mse.result().numpy())
-    print("average real vs pred acc:", correct_label / batch_size / steps)
-    print("average clf vs pred acc:", correct_clf_label / batch_size / steps)
-    print("average clf vs real acc:", clf_real / batch_size / steps)
+    print("average real vs pred acc:", aae_true_acc.result().numpy())
+    print("average clf vs pred acc:", clf_aae_acc.result().numpy())
+    print("average clf vs real acc:", clf_true_acc.result().numpy())
 
-    encode_adv(
-        "../experiment/adv_data/{}_{}.csv".format(dataset_name, "train"),encoder, scaler, wc_layer, field_names, num_classes, representation_file, latent_label,attack_mapper)
+    #draw adversarial samples
+    if encode_adv:
+        adv_path="../experiment/adv_data/{}_{}.csv".format(dataset_name, subset)
+        # use adv label as label, this is the same as clf label
+        data = tf.data.experimental.make_csv_dataset(
+            adv_path, batch_size=1000, select_columns=field_names + ["Adv Label"], label_name="Adv Label")
+        packed_data = data.map(PackNumericFeatures(field_names, num_classes))
+
+        for features, labels in packed_data.take(10):
+            input_feature = scaler(features.numpy())
+
+            _, representation, pred_label = encode(
+                encoder, wc_layer, input_feature)
+
+            clf_label=classification_model(input_feature)
+
+            pred_label = np.argmax(pred_label.numpy(), axis=1)
+            labels = np.argmax(labels.numpy(), axis=1)
+            clf_label = np.argmax(clf_label.numpy(), axis=1)
+
+            np.savetxt(representation_file, representation, delimiter="\t")
+            # meta for this file will only contain the labels
+            np.savetxt(label_file, np.stack((attack_mapper(labels, "adv_"), attack_mapper(
+                pred_label, ""),attack_mapper(clf_label, "")), axis=1), delimiter="\t", fmt="%s")
+
+    data, meta = load_dataset(
+        dataset_name, sets=[subset], include_meta=True,
+        label_name="category", batch_size=batch_size, shuffle=False,filter=filter)[0]
+
+    packed_data = data.map(PackNumericFeatures(
+        field_names, num_classes, scaler=None))
+    for a, b in tf.data.Dataset.zip((packed_data, meta)).take(2):
+        features = a[0]
+        labels = a[1]
+        input_feature = scaler(features.numpy())
+
+        style, representation, pred_label = encode_with_different_label(
+            encoder, wc_layer, input_feature,np.repeat(np.array([[0.,0.,1.]]),batch_size, axis=0), decoder)
+        clf_label=classification_model(input_feature)
+
+        pred_label = np.argmax(pred_label.numpy(), axis=1)
+        labels = np.argmax(labels.numpy(), axis=1)
+        clf_label = np.argmax(clf_label.numpy(), axis=1)
+
+        np.savetxt(representation_file, representation, delimiter="\t")
+        # meta for this file will only contain the labels
+        np.savetxt(label_file, np.stack((attack_mapper(labels, "aae_adv_"), attack_mapper(
+            pred_label, ""),attack_mapper(clf_label, "")), axis=1), delimiter="\t", fmt="%s")
+
 
     if draw_scatter:
         # add cluster_head
@@ -486,6 +545,7 @@ def eval(configs):
         ax[1].scatter(wc_weights[:, 0], wc_weights[:, 1],
                       c=[x for x in range(num_classes)])
 
+        # add legend and save figure
         legend1 = ax[0].legend(
             *ax[0].collections[0].legend_elements(), loc="lower left", title="Classes")
         legend12 = ax[0].legend(
@@ -502,10 +562,13 @@ def eval(configs):
         ax[1].add_artist(legend22)
         plt.tight_layout()
         plt.savefig('../experiment/aae_vis/{}_scatter.png'.format(prefix))
-    else:
-        latent_file.close()
-        latent_label.close()
+
+    if tsv_gen:
+        # clean up file handles
+        style_file.close()
+        label_file.close()
         representation_file.close()
+
     # keract_stuff(encoder, features['numeric'].numpy())
     # encoded = encoder(features['numeric'].numpy())
     # forward_derviative(decoder, encoded.numpy()[0], ["dim{}".format(i) for i in range(configs["latent_dim"])])
@@ -516,33 +579,30 @@ def eval(configs):
     # decode_representation_idx(418180,52720,field_names, "../ku_httpflooding/[HTTP_Flooding]GoogleHome_thread_800.csv", "same_cluster")
     # vis_clusters("../metadata-edited.tsv",["cluster1","cluster2"],"../ku_httpflooding/[HTTP_Flooding]GoogleHome_thread_800.csv",field_names)
 
-def encode_adv(adv_path, encoder, scaler, wc_layer, field_names, num_classes,representation_file, latent_label, attack_mapper):
-    data = tf.data.experimental.make_csv_dataset(adv_path, batch_size=1000, select_columns=field_names+["Adv Label"], label_name="Adv Label")
-    packed_data = data.map(PackNumericFeatures(field_names, num_classes ))
 
-    for features,labels in packed_data.take(1):
-        input_feature = scaler(features.numpy())
+def encode(encoder, wc_layer, input_feature):
+    style, pred_label = encoder(input_feature)
+    cluster_head = wc_layer(pred_label)
+    representation = cluster_head + style
+    return style, representation, pred_label
 
-        style, pred_label = encoder(input_feature)
-        cluster_head = wc_layer(pred_label)
-        representation = cluster_head + style
-        pred_label = np.argmax(pred_label.numpy(), axis=1)
+def encode_with_different_label(encoder, wc_layer,input_feature, label, decoder):
+    style, _ = encoder(input_feature)
+    cluster_head = wc_layer(label)
+    representation = cluster_head + style
+    decoded = decoder(representation)
 
-        labels = np.argmax(labels.numpy(), axis=1)
-        np.savetxt(representation_file, representation, delimiter="\t")
-        np.savetxt(latent_label, np.stack((attack_mapper(labels), attack_mapper(pred_label)), axis=1), delimiter="\t", fmt="%s")
-
-
+    return encode(encoder, wc_layer, decoded)
 
 def decode_representation_idx(idx1, idx2, field_names, filename, suffix):
-    df = pd.read_csv(filename, usecols=field_names+["idx"])
+    df = pd.read_csv(filename, usecols=field_names + ["idx"])
     df['protocol_type'] = df['protocol_type'].astype("category")
     df['protocol_type'] = df['protocol_type'].cat.codes
 
     pt1 = df.loc[df['idx'] == idx1].drop(columns=["idx"]).to_numpy()
     pt2 = df.loc[df['idx'] == idx2].drop(columns=["idx"]).to_numpy()
 
-    diffs = pt1-pt2
+    diffs = pt1 - pt2
 
     f = plt.figure(figsize=(20, 14))
     y_pos = list(range(len(field_names)))
@@ -556,13 +616,12 @@ def decode_representation_idx(idx1, idx2, field_names, filename, suffix):
     plt.savefig("../experiment/aae_vis/point_diff_{}.png".format(suffix))
 
 
-def decode_representation(decoder, representation, feature_names, unscaler,filename):
+def decode_representation(decoder, representation, feature_names, unscaler, filename):
     decoded = decoder(np.array(representation))
     decoded = unscaler(decoded)
     diffs = decoded[0] - decoded[1]
     f = plt.figure(figsize=(20, 14))
     y_pos = list(range(len(feature_names)))
-
 
     plt.barh(y_pos, diffs.numpy())
     plt.yticks(y_pos, feature_names,
@@ -591,9 +650,11 @@ if __name__ == '__main__':
         "dataset_name": "ku_flooding_800",
         "latent_dim": 3,
         "draw_scatter": False,
+        "tsv_gen": True,
         "use_clf_label": False,
-        "filter": None,
-        "clf_type": "3layer"
+        "filter": 0,
+        "clf_type": "3layer",
+        "encode_adv": "../experiment/adv_data/{}_{}.csv"
     }
 
     # train_aae(training_configs)

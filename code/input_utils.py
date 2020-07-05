@@ -454,6 +454,7 @@ class DataReader:
         metadata["num_train"] = num_train
         metadata["num_val"] = num_val
         metadata["num_test"] = num_test
+        metadata["meta_col"]=self.meta_col
 
         self.dataframe = dataframe
         # save the maps
