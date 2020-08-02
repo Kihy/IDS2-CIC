@@ -427,6 +427,7 @@ class DataReader:
         metadata["col_mean"] = actual_data.mean(axis=0).tolist()
         metadata["col_std"] = actual_data.std(axis=0).tolist()
         metadata["field_names"] = actual_data.columns.tolist()
+        metadata["corr_mat"]=actual_data.corr(method="spearman").to_numpy().tolist()
         # dtype object not serializable so turn into string first
         dtypes = [str(x) for x in actual_data.dtypes]
         metadata["dtypes"] = dtypes
