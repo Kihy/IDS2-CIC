@@ -6,10 +6,10 @@ from train import *
 from vis_utils import *
 
 if __name__ == '__main__':
-    dataset_name = "ku_flooding_800"
+    dataset_name = "ku_flooding"
     model_type = "3layer"
     model_path = "../models/{}_{}".format(model_type, dataset_name)
-    data_path = "../ku_httpflooding"
+    data_path = "../ku_http_flooding/features"
     percent_theta = 0.1
     target = 2
     attack_type = ["normal"]
@@ -28,15 +28,15 @@ if __name__ == '__main__':
     fixed=[]
     meta_col=["src_ip","dst_ip","timestamp","idx","fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag"]
     dr = DataReader(data_path, 0.2, 0.2, dataset_name=dataset_name, protocols=["TCP"], columns=columns, label_col=label_col, use_filename_as_label=True,
-    ignore=True, files=["Normal","800"],meta_col=meta_col,
+    ignore=False, files=[],meta_col=meta_col,
     attack_type=None
     )
     # dr.generate_dataframes()
     # dr.write_to_csv()
     # dr.dataset_statistics()
-    dr.start()
+    # dr.start()
     # generate_fake_data(model_path, columns,10000,dataset_name)
-    # train_normal_network(dataset_name, model_path, batch_size=1024, epochs=20,label_name=label_col)
+    train_normal_network(dataset_name, model_path, batch_size=1024, epochs=20,label_name=label_col)
     # evaluate_network(dataset_name, model_path, "{}_{}".format(model_type,dataset_name), batch_size=1024, label_name=label_col)
     # adversarial_generation(dataset_name, model_path, target, "test", num_samples=10000, fixed=fixed, theta=0.05,label_name=label_col, alter=0)
     # format_converter("../pcap_data/slowloris_adv.pcap_Flow.csv", "../experiment/column_map.csv", out_dir="../experiment/attack_pcap/", metadata=True, use_filename_as_label=False)

@@ -2,6 +2,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
+import os
 from input_utils import load_dataset, read_maps
 from sklearn import preprocessing
 from sklearn.compose import ColumnTransformer
@@ -107,6 +108,8 @@ def evaluate_network(dataset_name, model_path, output_name, batch_size=1024, lab
     # save a text version of the report as well
     report = classification_report(
         labels_all, y_pred_all, target_names=attack_label, labels=list(range(len(attack_label))))
+    if not os.path.isdir("../experiment/reports"):
+        os.mkdir("../experiment/reports")
     report_file = open("../experiment/reports/{}.txt".format(output_name), "w")
     report_file.write(report)
     report_file.close()

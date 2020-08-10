@@ -1,3 +1,6 @@
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+
 import functools
 import json
 
@@ -62,21 +65,27 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50, lab
 
     input_dim=len(field_names)
 
-    inputs=tf.keras.layers.Input(name='input', shape=(input_dim,), dtype='float32')
+    # Create a MirroredStrategy.
+    strategy = tf.distribute.MirroredStrategy()
+    print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
 
-    dense = Dense(41, activation='relu')(inputs)
-    dense1 = Dense(41, activation='relu')(dense)
-    dense2 = Dense(41, activation='relu')(dense1)
-    output = Dense(num_classes, activation='sigmoid')(dense)
+    # Open a strategy scope.
+    with strategy.scope():
+        inputs=tf.keras.layers.Input(name='input', shape=(input_dim,), dtype='float32')
 
-    # return
-    model = Model(inputs=inputs, outputs=output)
-    dense_layer_weights=model.layers[2].get_weights()[0]
-    # print(numeric_layer(example_batch))
-    # print(np.matmul(numeric_layer(example_batch),dense_layer_weights))
+        dense = Dense(41, activation='relu')(inputs)
+        dense1 = Dense(41, activation='relu')(dense)
+        dense2 = Dense(41, activation='relu')(dense1)
+        output = Dense(num_classes, activation='sigmoid')(dense)
 
-    model.compile(optimizer='adam',
-                  loss="categorical_crossentropy", metrics=["accuracy"])
+        # return
+        model = Model(inputs=inputs, outputs=output)
+        dense_layer_weights=model.layers[2].get_weights()[0]
+        # print(numeric_layer(example_batch))
+        # print(np.matmul(numeric_layer(example_batch),dense_layer_weights))
+
+        model.compile(optimizer='adam',
+                      loss="categorical_crossentropy", metrics=["accuracy"])
     # plot_model(model, "network_graphs/dense_feature_network.png",show_shapes=True)
     # model.summary()
 

@@ -1,5 +1,7 @@
 import json
 from datetime import datetime
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 
 import numpy as np
 import pandas as pd
@@ -215,7 +217,13 @@ def train_aae(configs):
     packed_val_data = val.map(PackNumericFeatures(
         field_names,  num_classes, scaler=scaler))
 
-    # oop version does not provide a good graph trace so using functional instead
+    # Create a MirroredStrategy.
+    # strategy = tf.distribute.MirroredStrategy()
+    # print('Number of devices: {}'.format(strategy.num_replicas_in_sync))
+    #
+    # # Open a strategy scope.
+    # with strategy.scope():
+        # oop version does not provide a good graph trace so using functional instead
     aae, encoder, decoder, latent_discriminator, cat_discriminator = build_aae_dim_reduce(
         input_dim, intermediate_dim, latent_dim, num_classes, distance_thresh, None, None, loss_weights)
 
@@ -635,7 +643,7 @@ def decode_representation(decoder, representation, feature_names, unscaler, file
 if __name__ == '__main__':
     training_configs = {
         "batch_size": 2048,
-        "dataset_name": "ku_flooding_800",
+        "dataset_name": "ku_flooding",
         "epochs": 100,
         "latent_dim": 3,
         "reconstruction_weight": 0.7,
@@ -647,7 +655,7 @@ if __name__ == '__main__':
     }
     eval_configs = {
         "batch_size": 4096,
-        "dataset_name": "ku_flooding_800",
+        "dataset_name": "ku_flooding",
         "latent_dim": 3,
         "draw_scatter": False,
         "tsv_gen": True,
@@ -657,5 +665,5 @@ if __name__ == '__main__':
         "encode_adv": "../experiment/adv_data/{}_{}.csv"
     }
 
-    # train_aae(training_configs)
+    train_aae(training_configs)
     eval(eval_configs)
