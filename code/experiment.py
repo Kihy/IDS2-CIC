@@ -6,7 +6,7 @@ from train import *
 from vis_utils import *
 
 if __name__ == '__main__':
-    dataset_name = "ku_flooding"
+    dataset_name = "ku_flooding_800"
     model_type = "3layer"
     model_path = "../models/{}_{}".format(model_type, dataset_name)
     data_path = "../ku_http_flooding/features"
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     fixed=[]
     meta_col=["src_ip","dst_ip","timestamp","idx","fin_flag", "syn_flag" ,"rst_flag", "psh_flag","ack_flag","urg_flag","ece_flag","cwr_flag"]
     dr = DataReader(data_path, 0.2, 0.2, dataset_name=dataset_name, protocols=["TCP"], columns=columns, label_col=label_col, use_filename_as_label=True,
-    ignore=False, files=[],meta_col=meta_col,
+    ignore=True, files=["Normal","800"],meta_col=meta_col,
     attack_type=None
     )
     # dr.generate_dataframes()

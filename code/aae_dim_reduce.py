@@ -330,6 +330,8 @@ def train_aae(configs):
 
     # tf.keras.models.save_model(aae, "../models/aae/test")
     prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_clf_label)
+    if not os.path.isdir("../models/aae"):
+        os.makedirs("../models/aae")
     aae.save("../models/aae/{}_aae.h5".format(prefix))
     encoder.save("../models/aae/{}_encoder.h5".format(prefix))
     decoder.save("../models/aae/{}_decoder.h5".format(prefix))
@@ -521,29 +523,30 @@ def eval(configs):
             np.savetxt(label_file, np.stack((attack_mapper(labels, "adv_"), attack_mapper(
                 pred_label, ""),attack_mapper(clf_label, "")), axis=1), delimiter="\t", fmt="%s")
 
-    data, meta = load_dataset(
-        dataset_name, sets=[subset], include_meta=True,
-        label_name="category", batch_size=batch_size, shuffle=False,filter=filter)[0]
-
-    packed_data = data.map(PackNumericFeatures(
-        field_names, num_classes, scaler=None))
-    for a, b in tf.data.Dataset.zip((packed_data, meta)).take(2):
-        features = a[0]
-        labels = a[1]
-        input_feature = scaler(features.numpy())
-
-        style, representation, pred_label = encode_with_different_label(
-            encoder, wc_layer, input_feature,np.repeat(np.array([[0.,0.,1.]]),batch_size, axis=0), decoder)
-        clf_label=classification_model(input_feature)
-
-        pred_label = np.argmax(pred_label.numpy(), axis=1)
-        labels = np.argmax(labels.numpy(), axis=1)
-        clf_label = np.argmax(clf_label.numpy(), axis=1)
-
-        np.savetxt(representation_file, representation, delimiter="\t")
-        # meta for this file will only contain the labels
-        np.savetxt(label_file, np.stack((attack_mapper(labels, "aae_adv_"), attack_mapper(
-            pred_label, ""),attack_mapper(clf_label, "")), axis=1), delimiter="\t", fmt="%s")
+    #
+    # data, meta = load_dataset(
+    #     dataset_name, sets=[subset], include_meta=True,
+    #     label_name="category", batch_size=batch_size, shuffle=False,filter=filter)[0]
+    #
+    # packed_data = data.map(PackNumericFeatures(
+    #     field_names, num_classes, scaler=None))
+    # for a, b in tf.data.Dataset.zip((packed_data, meta)).take(2):
+    #     features = a[0]
+    #     labels = a[1]
+    #     input_feature = scaler(features.numpy())
+    #
+    #     style, representation, pred_label = encode_with_different_label(
+    #         encoder, wc_layer, input_feature,np.repeat(np.array([[0.,0.,1.]]),batch_size, axis=0), decoder)
+    #     clf_label=classification_model(input_feature)
+    #
+    #     pred_label = np.argmax(pred_label.numpy(), axis=1)
+    #     labels = np.argmax(labels.numpy(), axis=1)
+    #     clf_label = np.argmax(clf_label.numpy(), axis=1)
+    #
+    #     np.savetxt(representation_file, representation, delimiter="\t")
+    #     # meta for this file will only contain the labels
+    #     np.savetxt(label_file, np.stack((attack_mapper(labels, "aae_adv_"), attack_mapper(
+    #         pred_label, ""),attack_mapper(clf_label, "")), axis=1), delimiter="\t", fmt="%s")
 
 
     if draw_scatter:
@@ -643,8 +646,8 @@ def decode_representation(decoder, representation, feature_names, unscaler, file
 if __name__ == '__main__':
     training_configs = {
         "batch_size": 2048,
-        "dataset_name": "ku_flooding",
-        "epochs": 100,
+        "dataset_name": "ku_flooding_800",
+        "epochs": 20,
         "latent_dim": 3,
         "reconstruction_weight": 0.7,
         "intermediate_dim": 24,
@@ -654,15 +657,16 @@ if __name__ == '__main__':
         "clf_type": "3layer"
     }
     eval_configs = {
-        "batch_size": 4096,
-        "dataset_name": "ku_flooding",
+        "batch_size": 2048,
+        "dataset_name": "ku_flooding_800",
         "latent_dim": 3,
         "draw_scatter": False,
         "tsv_gen": True,
         "use_clf_label": False,
         "filter": 0,
         "clf_type": "3layer",
-        "encode_adv": "../experiment/adv_data/{}_{}.csv"
+        "encode_adv":False
+        # "encode_adv": "../experiment/adv_data/{}_{}.csv"
     }
 
     train_aae(training_configs)
