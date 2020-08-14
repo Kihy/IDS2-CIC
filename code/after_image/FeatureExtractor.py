@@ -2,7 +2,6 @@
 import os
 import subprocess
 import copy
-import gc
 use_extrapolation=False #experimental correlation code
 if use_extrapolation:
     print("Importing AfterImage Cython Library")
