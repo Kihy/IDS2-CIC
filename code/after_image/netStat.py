@@ -85,7 +85,7 @@ class netStat:
 
         return src_subnet, dst_subnet
 
-    def updateGetStats(self, IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, datagramSize, timestamp):
+    def updateGetStats(self, IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize):
         # Host BW: Stats on the srcIP's general Sender Statistics
         # Hstat = np.zeros((3*len(self.Lambdas,)))
         # for i in range(len(self.Lambdas)):
@@ -100,7 +100,6 @@ class netStat:
         HHstat =  np.zeros((7*len(self.Lambdas,)))
         for i in range(len(self.Lambdas)):
             HHstat[(i*7):((i+1)*7)] = self.HT_H.update_get_1D2D_Stats(srcIP, dstIP,timestamp,datagramSize,self.Lambdas[i])
-
         # Host-Host Jitter:
         HHstat_jit =  np.zeros((3*len(self.Lambdas,)))
         for i in range(len(self.Lambdas)):
@@ -117,8 +116,8 @@ class netStat:
 
         return np.concatenate((MIstat, HHstat, HHstat_jit, HpHpstat))  # concatenation of stats into one stat vector
 
-    def get_stats(self, IPtype, srcMAC, dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, t1, frame_len=None, Lambda=1):
-        """get stats of a packet, framelen not needed"""
+    def get_stats(self, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, t1, Lambda=1):
+        """get stats of a packet"""
 
         MIstat =  np.zeros((3*len(self.Lambdas,)))
         for i in range(len(self.Lambdas)):

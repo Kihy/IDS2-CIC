@@ -180,10 +180,11 @@ def train_aae(configs):
     batch_size = configs["batch_size"]
     dataset_name = configs["dataset_name"]
     filter = configs["filter"]
+    label_name=configs["label_name"]
 
     train, val = load_dataset(
         dataset_name, sets=["train", "val"], shuffle=False,
-        label_name="category", batch_size=batch_size, filter=filter)
+        label_name=label_name, batch_size=batch_size, filter=filter)
 
     epochs = configs["epochs"]
     latent_dim = configs["latent_dim"]
@@ -339,6 +340,109 @@ def train_aae(configs):
     cat_discriminator.save("../models/aae/{}_cat_disc.h5".format(prefix))
 
 
+
+def encode_features(configs):
+    """
+    encode the feature set to latent space
+
+    Args:
+        configs (dict): configurations of the autoencoder.
+
+    Returns:
+        None
+
+    """
+
+    # load configs and data
+    batch_size = configs["batch_size"]
+    dataset_name = configs["dataset_name"]
+    filter = configs["filter"]
+    tsv_gen = configs["tsv_gen"]
+    encode_adv=configs["encode_adv"]
+    subset = "test"
+    label_name=configs["label_name"]
+    include_meta=configs["include_meta"]
+    feature_path=configs["feature_path"]
+    meta_file=configs["meta_file"]
+
+    # load feature csv
+    feature_set=tf.data.experimental.make_csv_dataset(feature_path, batch_size,shuffle=False)
+    meta_data=open(meta_file,"r")
+    meta_data.readline()
+
+    draw_scatter = configs["draw_scatter"]
+    latent_dim = configs["latent_dim"]
+    use_clf_label = configs["use_clf_label"]
+
+    with open("../data/{}/metadata.txt".format(dataset_name)) as file:
+        metadata = json.load(file)
+    datamin = np.array(metadata["col_min"][:-1])
+    datamax = np.array(metadata["col_max"][:-1])
+    field_names=metadata["field_names"][:-1]
+
+
+    feature_set = feature_set.map(PackNumericFeatures(field_names))
+
+    scaler, unscaler = min_max_scaler_gen(datamin, datamax)
+
+
+
+    # load models
+    custom_objects = {'WcLayer': WcLayer}
+    prefix = "{}_{}_{}".format(dataset_name, latent_dim, use_clf_label)
+    aae = tf.keras.models.load_model(
+        "../models/aae/{}_aae.h5".format(prefix), custom_objects=custom_objects)
+    encoder = tf.keras.models.load_model(
+        "../models/aae/{}_encoder.h5".format(prefix), custom_objects=custom_objects)
+    decoder = tf.keras.models.load_model(
+        "../models/aae/{}_decoder.h5".format(prefix), custom_objects=custom_objects)
+
+    latent_discriminator = tf.keras.models.load_model(
+        "../models/aae/{}_lat_disc.h5".format(prefix))
+    cat_discriminator = tf.keras.models.load_model(
+        "../models/aae/{}_cat_disc.h5".format(prefix))
+
+    classification_model = tf.keras.models.load_model(
+        "../models/{}_{}".format(configs["clf_type"], dataset_name))
+
+    steps = configs["num_pkt"] // batch_size
+
+    # get wc layer weights as clusterheads
+    wc_layer = aae.get_layer("wc_layer")
+    wc_weights = wc_layer.weights[0].numpy()
+
+    prefix = "{}_{}".format(dataset_name, feature_path.split("/")[-1])
+
+    label_file = open(
+        "../experiment/aae_vis/{}_labels.tsv".format(prefix), "w")
+    representation_file = open(
+        "../experiment/aae_vis/{}_representation.tsv".format(prefix), "w")
+
+    # read attack map for labelling
+    attack_map = read_maps(
+        "../data/{}/maps/{}.csv".format(dataset_name,label_name))
+    # vectorize attack map with prefixes. prefix used to distinguish adversarial samples
+    attack_mapper = np.vectorize(lambda x, pref: pref + attack_map[x])
+
+    header = [['aae_pred_label','index','comment'] + ["dim1", "dim2", "dim3"]]
+    np.savetxt(label_file, header, delimiter="\t", fmt="%s")
+    batch_index=0
+    for feature in feature_set.take(steps):
+        comments=[]
+        for i in range(batch_size):
+            l=meta_data.readline().rstrip().split(",")[1]
+            comments.append(l)
+        input_feature = scaler(feature.numpy())
+        style, representation, pred_label = encode(
+            encoder, wc_layer, input_feature)
+
+        np.savetxt(representation_file, representation, delimiter="\t")
+        label_arr = np.stack((attack_mapper(np.argmax(pred_label, axis=1), ""), np.arange(batch_index*batch_size,(batch_index+1)*batch_size ), np.array(comments),representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
+        np.savetxt(label_file, label_arr, delimiter="\t", fmt="%s")
+        batch_index+=1
+
+
+
 def eval(configs):
     """
     evaluate the autoencoder, including generation of tsv files, mse of reconstruction and label accuracy.
@@ -358,10 +462,20 @@ def eval(configs):
     tsv_gen = configs["tsv_gen"]
     encode_adv=configs["encode_adv"]
     subset = "test"
+    label_name=configs["label_name"]
+    include_meta=configs["include_meta"]
+
     # dont shuffle since its already shuffled in datareader
-    test, meta = load_dataset(
-        dataset_name, sets=[subset], include_meta=True,
-        label_name="category", batch_size=batch_size, shuffle=False)[0]
+    if include_meta:
+        test,meta = load_dataset(
+            dataset_name, sets=[subset], include_meta=include_meta,
+            label_name=label_name, batch_size=batch_size, shuffle=False)[0]
+    else:
+        test = load_dataset(
+            dataset_name, sets=[subset], include_meta=include_meta,
+            label_name=label_name, batch_size=batch_size, shuffle=False)[0]
+
+
 
     draw_scatter = configs["draw_scatter"]
     latent_dim = configs["latent_dim"]
@@ -423,7 +537,7 @@ def eval(configs):
 
         # read attack map for labelling
         attack_map = read_maps(
-            "../data/{}/maps/category.csv".format(dataset_name))
+            "../data/{}/maps/{}.csv".format(dataset_name,label_name))
         # vectorize attack map with prefixes. prefix used to distinguish adversarial samples
         attack_mapper = np.vectorize(lambda x, pref: pref + attack_map[x])
 
@@ -453,9 +567,19 @@ def eval(configs):
     label_mse = tf.keras.metrics.MeanSquaredError()
     normalized_mse = tf.keras.metrics.MeanSquaredError()
 
-    for a, b in tf.data.Dataset.zip((packed_test_data, meta)).take(steps):
-        features = a[0]
-        labels = a[1]
+    if include_meta:
+        data=tf.data.Dataset.zip((packed_test_data, meta))
+    else:
+        data=packed_test_data
+
+    for entry in data.take(steps):
+        if include_meta:
+            a,b=entry
+            features = a[0]
+            labels = a[1]
+        else:
+            features = entry[0]
+            labels = entry[1]
 
         input_feature = scaler(features.numpy())
         style, representation, pred_label = encode(
@@ -487,8 +611,12 @@ def eval(configs):
             # generate tsv file for each batch
             np.savetxt(style_file, style, delimiter="\t")
             np.savetxt(representation_file, representation, delimiter="\t")
-            label_arr = np.stack((attack_mapper(np.argmax(labels, axis=1), ""), attack_mapper(np.argmax(pred_label, axis=1), ""), attack_mapper(np.argmax(clf_label, axis=1), ""), *list(
-                b[x].numpy() for x in b.keys()), representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
+
+            if include_meta:
+                label_arr = np.stack((attack_mapper(np.argmax(labels, axis=1), ""), attack_mapper(np.argmax(pred_label, axis=1), ""), attack_mapper(np.argmax(clf_label, axis=1), ""), *list(
+                    b[x].numpy() for x in b.keys()), representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
+            else:
+                label_arr = np.stack((attack_mapper(np.argmax(labels, axis=1), ""), attack_mapper(np.argmax(pred_label, axis=1), ""), attack_mapper(np.argmax(clf_label, axis=1), ""), representation[:, 0], representation[:, 1], representation[:, 2]), axis=1)
             np.savetxt(label_file, label_arr, delimiter="\t", fmt="%s")
 
     print("average mse:", recon_mse.result().numpy())
@@ -643,31 +771,58 @@ def decode_representation(decoder, representation, feature_names, unscaler, file
     plt.savefig("../experiment/aae_vis/point_diff_{}.png".format(filename))
 
 
+
 if __name__ == '__main__':
     training_configs = {
-        "batch_size": 2048,
-        "dataset_name": "ku_flooding_800",
-        "epochs": 20,
+        "batch_size": 1024,
+        "dataset_name": "ku_flooding_kitsune",
+        "epochs": 50,
         "latent_dim": 3,
         "reconstruction_weight": 0.7,
-        "intermediate_dim": 24,
+        "intermediate_dim": 50,
         "use_clf_label": False,
         "distance_thresh": 0.5,
         "filter": None,
-        "clf_type": "3layer"
+        "clf_type": "3layer",
+        "label_name": "label"
     }
     eval_configs = {
-        "batch_size": 2048,
-        "dataset_name": "ku_flooding_800",
+        "batch_size": 1024,
+        "dataset_name": "ku_flooding_kitsune",
         "latent_dim": 3,
         "draw_scatter": False,
         "tsv_gen": True,
         "use_clf_label": False,
-        "filter": 0,
+        "filter": None,
         "clf_type": "3layer",
-        "encode_adv":False
+        "encode_adv":False,
+        "label_name": "label",
+        "include_meta": False
         # "encode_adv": "../experiment/adv_data/{}_{}.csv"
     }
 
-    train_aae(training_configs)
-    eval(eval_configs)
+
+    encode_configs = {
+        "batch_size": 10,
+        "dataset_name": "ku_flooding_kitsune",
+        "latent_dim": 3,
+        "draw_scatter": False,
+        "tsv_gen": True,
+        "use_clf_label": False,
+        "filter": None,
+        "clf_type": "3layer",
+        "encode_adv":False,
+        "label_name": "label",
+        "include_meta": False,
+        "num_pkt":1000,
+        "feature_path":"../experiment/pso/crafted_pcap_new.csv",
+        "meta_file":"../experiment/pso/crafted_meta.csv",
+        # "feature_path": "../ku_http_flooding/kitsune_features/\[Normal\]GoogleHome.csv"
+
+        # "feature_path": "../data/ku_flooding_kitsune/test.csv"
+        # "feature_path":"../ku_http_flooding/kitsune_features/\[HTTP_Flooding\]GoogleHome_thread_1_origin.csv"
+        # "encode_adv": "../experiment/adv_data/{}_{}.csv"
+    }
+    # train_aae(training_configs)
+    # eval(eval_configs)
+    encode_features(encode_configs)

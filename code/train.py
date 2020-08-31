@@ -31,7 +31,7 @@ matplotlib.use('Agg')
 def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50, label_name="Label"):
     """
     trains a normal 3 fully connected layer network. uses train and val subset of
-    dataset_name.
+    dataset_name. 
 
     Args:
         dataset_name (string): name of the dataset to be trained on.
@@ -46,7 +46,6 @@ def train_normal_network(dataset_name, save_path, batch_size=128, epochs=50, lab
 
     with open("../data/{}/metadata.txt".format(dataset_name)) as file:
         metadata = json.load(file)
-    print(metadata["dtypes"])
     train, val = load_dataset(
         dataset_name, sets=["train", "val"],
         label_name=label_name, batch_size=batch_size)

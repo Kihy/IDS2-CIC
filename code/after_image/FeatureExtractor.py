@@ -9,7 +9,7 @@ if use_extrapolation:
         cmd = "python setup.py build_ext --inplace"
         subprocess.call(cmd,shell=True)
 #Import dependencies
-import after_image.netStat as ns
+import after_image.net_stat as ns
 import csv
 import numpy as np
 print("Importing Scapy Library")
@@ -23,13 +23,14 @@ import subprocess
 # If wireshark is installed (tshark) it is used to parse (it's faster), otherwise, scapy is used (much slower).
 # If wireshark is used then a tsv file (parsed version of the pcap) will be made -which you can use as your input next time
 class FE:
-    def __init__(self,file_path,limit=np.inf):
+    def __init__(self,file_path,limit=np.inf, max_pkt=None, nstat=None, dummy_nstat=None):
         self.path = file_path
         self.limit = limit
         self.parse_type = None #unknown
         self.curPacketIndx = 0
         self.tsvin = None #used for parsing TSV file
         self.scapyin = None #used for parsing pcap with scapy
+        self.max_pkt=max_pkt
 
         ### Prep pcap ##
         self.__prep__()
@@ -37,8 +38,19 @@ class FE:
         ### Prep Feature extractor (AfterImage) ###
         maxHost = 100000000000
         maxSess = 100000000000
-        self.nstat = ns.netStat(np.nan, maxHost, maxSess)
-        self.dummy_nstat=ns.netStat(np.nan, maxHost, maxSess)
+
+        if nstat is not None:
+            self.nstat=nstat
+        else:
+            self.nstat = ns.netStat(np.nan, maxHost, maxSess)
+        if dummy_nstat is not None:
+            self.dummy_nstat=dummy_nstat
+        else:
+            self.dummy_nstat=ns.netStat(np.nan, maxHost, maxSess)
+
+    def get_nstat(self):
+        return self.nstat, self.dummy_nstat
+
 
     def _get_tshark_path(self):
         if platform.system() == 'Windows':
@@ -69,6 +81,7 @@ class FE:
         elif type == "pcap" or type == 'pcapng':
             # Try parsing via tshark dll of wireshark (faster)
             if os.path.isfile(self._tshark):
+            # if False:
                 self.pcap2tsv_with_tshark()  # creates local tsv file
                 self.path += ".tsv"
                 self.parse_type = "tsv"
@@ -104,7 +117,10 @@ class FE:
 
         else: # scapy
             print("Reading PCAP file via Scapy...")
-            self.scapyin = rdpcap(self.path)
+            if self.max_pkt is not None:
+                self.scapyin = rdpcap(self.path, count=int(self.max_pkt))
+            else:
+                self.scapyin = rdpcap(self.path)
             self.limit = len(self.scapyin)
             print("Loaded " + str(len(self.scapyin)) + " Packets.")
             self.num_pkt=len(self.scapyin)
@@ -118,8 +134,13 @@ class FE:
 
         ### Parse next packet ###
         if self.parse_type == "tsv":
+
             row = self.tsvin.__next__()
             IPtype = np.nan
+            packet=row
+            if row[-2]=='2':
+                self.curPacketIndx = self.curPacketIndx + 1
+                return [],None
             timestamp = row[0]
             framelen = row[1]
             srcIP = ''
@@ -154,9 +175,12 @@ class FE:
 
         elif self.parse_type == "scapy":
             packet = self.scapyin[self.curPacketIndx]
+            if not packet.haslayer(TCP):
+                self.curPacketIndx+=1
+                return [], None
             IPtype = np.nan
             timestamp = packet.time
-            framelen = len(packet)
+            framelen = packet.len
             if packet.haslayer(IP):  # IPv4
                 srcIP = packet[IP].src
                 dstIP = packet[IP].dst
@@ -203,9 +227,9 @@ class FE:
 
         ### Extract Features
         try:
-            return [IPtype, srcMAC, dstMAC, srcIP, srcproto, dstIP, dstproto, float(timestamp), int(framelen)]
+            return [IPtype, srcMAC, dstMAC, srcIP, srcproto, dstIP, dstproto, float(timestamp), int(framelen)], packet
         except Exception as e:
-            print(e)
+            print("error:", e)
             return []
 
     def roll_back(self):
@@ -215,8 +239,12 @@ class FE:
 
     def pcap2tsv_with_tshark(self):
         print('Parsing with tshark...')
-        fields = "-e frame.time_epoch -e frame.len -e eth.src -e eth.dst -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e udp.srcport -e udp.dstport -e icmp.type -e icmp.code -e arp.opcode -e arp.src.hw_mac -e arp.src.proto_ipv4 -e arp.dst.hw_mac -e arp.dst.proto_ipv4 -e ipv6.src -e ipv6.dst"
-        cmd =  '"' + self._tshark + '" -r '+ self.path +' -T fields '+ fields +' -E header=y -E occurrence=f > '+self.path+".tsv"
+        fields = "-e frame.time_epoch -e frame.len -e eth.src -e eth.dst -e ip.src -e ip.dst -e tcp.srcport -e tcp.dstport -e udp.srcport -e udp.dstport -e icmp.type -e icmp.code -e arp.opcode -e arp.src.hw_mac -e arp.src.proto_ipv4 -e arp.dst.hw_mac -e arp.dst.proto_ipv4 -e ipv6.src -e ipv6.dst -e ip.proto -e llc.type"
+        if self.max_pkt is not None:
+            options=" -c "+ self.max_pkt
+        else:
+            options=""
+        cmd =  '"' + self._tshark + '" -r '+ self.path +' -T fields '+ fields + options +' -E header=y -E occurrence=f > '+self.path+".tsv"
         subprocess.call(cmd,shell=True)
         print("tshark parsing complete. File saved as: "+self.path +".tsv")
 

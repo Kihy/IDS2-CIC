@@ -75,7 +75,7 @@ class PackNumericFeatures(object):
         self.num_classes = num_classes
         self.scaler = scaler
 
-    def __call__(self, features, labels):
+    def __call__(self, features, labels=None):
         numeric_features = [features.pop(name) for name in self.names]
         numeric_features = [tf.cast(feat, tf.float32)
                             for feat in numeric_features]
@@ -89,7 +89,8 @@ class PackNumericFeatures(object):
             if labels.dtype=="float32":
                 labels=tf.cast(labels, "int32")
             labels = tf.one_hot(labels, self.num_classes)
-
+        if labels==None:
+            return numeric_features
         return numeric_features, labels
 
 
@@ -352,7 +353,6 @@ def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=F
 
     if use_filename_as_label:
         df = df.replace("No Label", file_name.split(".")[0])
-    print(metadata)
     if metadata:
         meta_dict = {}
         print("generating metadata")
@@ -364,7 +364,7 @@ def convert_file(file, col_map, out_dir, metadata=False, use_filename_as_label=F
 
 
 class DataReader:
-    def __init__(self, data_directory, train_test_split, test_val_split, files=[], protocols=[], columns=[], label_col="Label", meta_col=[], ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False):
+    def __init__(self, data_directory, train_test_split, test_val_split, files=[], protocols=[], columns=[], replace_label=False ,label_col="Label", meta_col=[], ignore=False, attack_type=None, dataset_name=None, use_filename_as_label=False, type="KU"):
         """initializes the data reader for CIC-IDS datasets.
 
         Args:
@@ -403,6 +403,8 @@ class DataReader:
         self.columns = columns
         self.meta_col=meta_col
         self.label_col=label_col
+        self.replace_label=replace_label
+        self.type=type
 
     def generate_dataframes(self):
         """
@@ -528,14 +530,18 @@ class DataReader:
 
                 for chunk in df_chunk:
 
-                    if self.use_filename_as_label:
-                        chunk[self.label_col] = chunk[self.label_col]+file.split(".")[0]
+                    if self.type == "KU":
+                        if self.use_filename_as_label:
+                            if self.replace_label:
+                                chunk[self.label_col] = file.split(".")[0]
+                            else:
+                                chunk[self.label_col] = chunk[self.label_col]+file.split(".")[0]
 
-                    if len(self.protocols) > 0:
-                        chunk = chunk[chunk["protocol_type"].isin(
-                            self.protocols)]
-                    chunk["same_sip_src_bytes"]/=1000
-                    chunk["same_dip_dst_bytes"]/=1000
+                        if len(self.protocols) > 0:
+                            chunk = chunk[chunk["protocol_type"].isin(
+                                self.protocols)]
+                        chunk["same_sip_src_bytes"]/=1000
+                        chunk["same_dip_dst_bytes"]/=1000
                     datasets.append(chunk)
 
 
@@ -545,10 +551,10 @@ class DataReader:
         # some headers have spaces in front
         all_data = all_data.rename(columns=lambda x: x.lstrip())
 
-        # drop duplicate since duplicate columns ends with .n
-        for colname in all_data.columns:
-            if colname[-1].isdigit():
-                all_data = all_data.drop([colname], axis=1)
+        # # drop duplicate since duplicate columns ends with .n
+        # for colname in all_data.columns:
+        #     if colname[-1].isdigit():
+        #         all_data = all_data.drop([colname], axis=1)
 
         # filter attacks
         if self.attack_type is not None:
