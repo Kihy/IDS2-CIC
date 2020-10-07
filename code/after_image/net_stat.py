@@ -5,7 +5,9 @@ import subprocess
 import pyximport
 pyximport.install()
 import after_image.after_image as af
+from after_image.after_image import IncStat1D, IncStat2D
 from pprint import pformat
+import copy
 #import AfterImage_NDSS as af
 
 #
@@ -43,9 +45,11 @@ class netStat:
             self.Lambdas = [5,3,1,.1,.01]
         else:
             self.Lambdas = Lambdas
-
+        self.clean_up_round=100
         # number of pkts updated
         self.num_updated=0
+
+        self.prev_pkt_time=0
 
         #cutoffweight for cleaning
         self.cutoffWeight=1e-6
@@ -60,6 +64,8 @@ class netStat:
         self.HT_MI = af.IncStatDB("HT_MI",limit=self.MAC_HostLimit)#MAC-IP relationships
         self.HT_H = af.IncStatDB("HT_H",limit=self.HostLimit) #Source Host BW Stats
         self.HT_Hp = af.IncStatDB("HT_Hp",limit=self.SessionLimit)#Source Host BW Stats
+
+        self.log_file=open("../experiment/ns_log_pso.csv","w")
 
     def getHT(self):
         return {"HT_jit":self.HT_jit,
@@ -93,6 +99,188 @@ class netStat:
 
         return src_subnet, dst_subnet
 
+    def get_records(self,IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize):
+        db={}
+        db["HT_MI"]=[]
+        db["HHstat"] = [[]for i in range(len(self.Lambdas))]
+        db["HHstat_cov"]=[]
+        db["HHstat_jit"]=[]
+        db["HpHpstat"] = [[]for i in range(len(self.Lambdas))]
+        db["HpHpstat_cov"]=[]
+        db["num_updated"]=self.num_updated
+
+        for i in range(len(self.Lambdas)):
+            inc_stat=self.HT_MI.register("{}_{}".format(srcMAC,srcIP), i)
+            db["HT_MI"].append(inc_stat)
+
+            inc_stat=self.HT_H.register(srcIP,i)
+            db["HHstat"][i].append(inc_stat)
+
+            inc_stat=self.HT_H.register(dstIP,i)
+            db["HHstat"][i].append(inc_stat)
+
+            inc_cov=self.HT_H.register_cov(srcIP, dstIP,i)
+            db["HHstat_cov"].append(inc_cov)
+
+            inc_stat=self.HT_jit.register("{}_{}".format(srcIP,dstIP),i,isTypeDiff=True)
+            db["HHstat_jit"].append(inc_stat)
+
+
+            if srcProtocol == 'arp':
+
+                inc_stat= self.HT_Hp.register(srcMAC,i)
+                db["HpHpstat"][i].append(inc_stat)
+
+                inc_stat= self.HT_Hp.register(dstMAC,i)
+                db["HpHpstat"][i].append(inc_stat)
+
+                inc_cov=self.HT_Hp.register_cov(srcMAC, dstMAC, i)
+                db["HpHpstat_cov"].append(inc_cov)
+            else:  # some other protocol (e.g. TCP/UDP)
+                inc_stat= self.HT_Hp.register("{}_{}".format(srcIP, srcProtocol), i)
+                db["HpHpstat"][i].append(inc_stat)
+
+                inc_stat= self.HT_Hp.register("{}_{}".format(dstIP , dstProtocol), i)
+                db["HpHpstat"][i].append(inc_stat)
+                inc_cov=self.HT_Hp.register_cov("{}_{}".format(srcIP, srcProtocol), "{}_{}".format(dstIP , dstProtocol),i)
+                db["HpHpstat_cov"].append(inc_cov)
+        return db
+
+    def update_dummy_db(self, IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize, db,verbose=False):
+        # update
+        record=np.zeros(len(self.getNetStatHeaders()))
+
+        for i in range(len(self.Lambdas)):
+            if db["HT_MI"][i] is None:
+                inc_stat=IncStat1D(self.Lambdas[i], "{}_{}".format(srcMAC,srcIP), timestamp)
+                db["HT_MI"][i]=inc_stat
+            db["HT_MI"][i].insert(datagramSize,timestamp)
+            record[i*3:(i+1)*3]=db["HT_MI"][i].all_stats_1D()
+
+            if db["HHstat"][i][0] is None:
+                inc_stat=IncStat1D(self.Lambdas[i], srcIP, timestamp)
+                db["HHstat"][i][0]=inc_stat
+            db["HHstat"][i][0].insert(datagramSize,timestamp)
+
+            if db["HHstat"][i][1] is None:
+                inc_stat=IncStat1D(self.Lambdas[i], dstIP, timestamp)
+                db["HHstat"][i][1]=inc_stat
+
+            if db["HHstat_cov"][i] is None:
+                incS1 = db["HHstat"][i][0]
+                incS2 = db["HHstat"][i][1]
+
+                inc_cov = IncStat2D(incS1,incS2,timestamp)
+                incS1.add_cov(dstIP)
+                incS2.add_cov(srcIP)
+                db["HHstat_cov"][i]=inc_cov
+            db["HHstat_cov"][i].update_cov(srcIP, datagramSize,timestamp)
+            record[i*7+15:(i+1)*7+15]=db["HHstat"][i][0].all_stats_1D()+db["HHstat_cov"][i].get_stats2()
+
+
+
+            if db["HHstat_jit"][i] is None:
+                inc_stat=IncStat1D(self.Lambdas[i], "{}_{}".format(srcIP,dstIP), timestamp,isTypeDiff=True)
+                db["HHstat_jit"][i]=inc_stat
+            db["HHstat_jit"][i].insert(0,timestamp)
+            record[(i*3)+50:((i+1)*3+50)]+=db["HHstat_jit"][i].all_stats_1D()
+
+
+            if srcProtocol == 'arp':
+
+                if db["HpHpstat"][i][0] is None:
+                    inc_stat= IncStat1D(self.Lambdas[i], srcMAC, timestamp)
+                    db["HpHpstat"][i][0]=inc_stat
+                db["HpHpstat"][i][0].insert(datagramSize,timestamp)
+
+                if db["HpHpstat"][i][1] is None:
+                    inc_stat=IncStat1D(self.Lambdas[i], dstMAC, timestamp)
+                    db["HpHpstat"][i][1]=inc_stat
+
+
+                if db["HpHpstat_cov"][i] is None:
+                    incS1 = db["HpHpstat"][i][0]
+                    incS2 = db["HpHpstat"][i][1]
+
+                    inc_cov = IncStat2D(incS1,incS2,timestamp)
+                    incS1.add_cov(dstMAC)
+                    incS2.add_cov(srcMAC)
+                    db["HpHpstat_cov"][i]=inc_cov
+                db["HpHpstat_cov"][i].update_cov(srcMAC,datagramSize,timestamp)
+
+                record[(i*7)+65:((i+1)*7)+65]=db["HpHpstat"][i].all_stats_1D() + db["HpHpstat_cov"][i].get_stats2()
+            else:
+
+                if db["HpHpstat"][i][0] is None:
+                    inc_stat=IncStat1D(self.Lambdas[i], "{}_{}".format(srcIP, srcProtocol), timestamp)
+                    db["HpHpstat"][i][0] = inc_stat
+                db["HpHpstat"][i][0].insert(datagramSize, timestamp)
+
+                if db["HpHpstat"][i][1] is None:
+                    inc_stat=IncStat1D(self.Lambdas[i], "{}_{}".format(dstIP , dstProtocol), timestamp)
+                    db["HpHpstat"][i][1] = inc_stat
+
+                if db["HpHpstat_cov"][i] is None:
+                    incS1 = db["HpHpstat"][i][0]
+                    incS2 = db["HpHpstat"][i][1]
+
+                    inc_cov = IncStat2D(incS1,incS2,timestamp)
+                    incS1.add_cov("{}_{}".format(dstIP , dstProtocol))
+                    incS2.add_cov("{}_{}".format(srcIP, srcProtocol))
+                    db["HpHpstat_cov"][i]=inc_cov
+
+                db["HpHpstat_cov"][i].update_cov("{}_{}".format(srcIP, srcProtocol),datagramSize,timestamp)
+                record[(i*7)+65:((i+1)*7)+65]=db["HpHpstat"][i][0].all_stats_1D() + db["HpHpstat_cov"][i].get_stats2()
+
+        #mimic cleaning behavior
+        db["num_updated"]+=1
+        if db["num_updated"]%self.clean_up_round==0:
+            if verbose:
+                print(db["num_updated"])
+                print("dummy clean timestamp",timestamp)
+            self.clean_dummy_old_records(self.cutoffWeight, timestamp, db, "HT_MI", verbose)
+            self.clean_dummy_old_records(self.cutoffWeight, timestamp, db, "HHstat", verbose)
+            self.clean_dummy_old_records(self.cutoffWeight, timestamp, db,"HHstat_jit", verbose)
+            self.clean_dummy_old_records(self.cutoffWeight, timestamp, db, "HpHpstat", verbose)
+            if verbose:
+                print(db)
+
+        return record
+
+    def clean_dummy_old_records(self,cutoffWeight,curTime,db,ht,verbose=False):
+        for i in range(len(self.Lambdas)):
+            if not isinstance(db[ht][i], list):
+                inc_stat=db[ht][i]
+                inc_stat.processDecay(curTime)
+                if inc_stat.weight() < cutoffWeight:
+                    # print("cleaning dummy record",int_stat)
+                    db[ht][i]=None
+            else:
+                inc_stat=db[ht][i][0]
+                inc_stat.processDecay(curTime)
+                inc_stat2=db[ht][i][1]
+                inc_stat2.processDecay(curTime)
+
+                remove_flag=False
+                if inc_stat.weight() < cutoffWeight:
+                    if verbose:
+                        print("dummy inc stat", inc_stat)
+                    db[ht][i][1].remove_cov(incstat.name)
+                    db[ht][i][0]=None
+
+                    remove_flag=True
+
+                if inc_stat2.weight()<cutoffWeight:
+                    if verbose:
+                        print("dummy inc stat", inc_stat2)
+                    db[ht][i][0].remove_cov(inc_stat2.name)
+                    db[ht][i][1]=None
+
+                    remove_flag=True
+
+                if remove_flag:
+                    db[ht+"_cov"][i]=None
+
     def updateGetStats(self, IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize):
         # Host BW: Stats on the srcIP's general Sender Statistics
         # Hstat = np.zeros((3*len(self.Lambdas,)))
@@ -100,38 +288,57 @@ class netStat:
         #     Hstat[(i*3):((i+1)*3)] = self.HT_H.update_get_1D_Stats(srcIP, timestamp, datagramSize, self.Lambdas[i])
 
         #MAC.IP: Stats on src MAC-IP relationships
-        MIstat =  np.zeros((3*len(self.Lambdas,)))
-        for i in range(len(self.Lambdas)):
-            MIstat[(i*3):((i+1)*3)] = self.HT_MI.update_get_1D_Stats("{}_{}".format(srcMAC,srcIP), timestamp, datagramSize, i)
 
-        # Host-Host BW: Stats on the dual traffic behavior between srcIP and dstIP
-        HHstat =  np.zeros((7*len(self.Lambdas,)))
-        for i in range(len(self.Lambdas)):
-            HHstat[(i*7):((i+1)*7)] = self.HT_H.update_get_1D2D_Stats(srcIP, dstIP,timestamp,datagramSize,i)
-        # Host-Host Jitter:
-        HHstat_jit =  np.zeros((3*len(self.Lambdas,)))
-        for i in range(len(self.Lambdas)):
-            HHstat_jit[(i*3):((i+1)*3)] = self.HT_jit.update_get_1D_Stats("{}_{}".format(srcIP,dstIP), timestamp, 0,i,isTypeDiff=True)
+        self.log_file.write("{}, {}, {}, {}, {}, {}, {}, {}, {}\n".format( IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize))
 
-        # Host-Host BW: Stats on the dual traffic behavior between srcIP and dstIP
-        HpHpstat =  np.zeros((7*len(self.Lambdas,)))
-        if srcProtocol == 'arp':
-            for i in range(len(self.Lambdas)):
-                HpHpstat[(i*7):((i+1)*7)] = self.HT_Hp.update_get_1D2D_Stats(srcMAC, dstMAC, timestamp, datagramSize, i)
-        else:  # some other protocol (e.g. TCP/UDP)
-            for i in range(len(self.Lambdas)):
-                HpHpstat[(i*7):((i+1)*7)] = self.HT_Hp.update_get_1D2D_Stats("{}_{}".format(srcIP, srcProtocol), "{}_{}".format(dstIP , dstProtocol), timestamp, datagramSize, i)
+        self.prev_pkt_time=timestamp
+        record=np.zeros(len(self.getNetStatHeaders()))
+
+        for i in range(len(self.Lambdas)):
+            record[i*3:(i+1)*3]=self.HT_MI.update_get_1D_Stats("{}_{}".format(srcMAC,srcIP), timestamp, datagramSize, i)
+            record[i*7+15:(i+1)*7+15]=self.HT_H.update_get_1D2D_Stats(srcIP, dstIP,timestamp,datagramSize,i)
+            record[(i*3)+50:((i+1)*3+50)]=self.HT_jit.update_get_1D_Stats("{}_{}".format(srcIP,dstIP), timestamp, 0,i,isTypeDiff=True)
+            if srcProtocol == 'arp':
+                record[(i*7)+65:((i+1)*7)+65]=self.HT_Hp.update_get_1D2D_Stats(srcMAC, dstMAC, timestamp, datagramSize, i)
+            else:
+                record[(i*7)+65:((i+1)*7)+65] = self.HT_Hp.update_get_1D2D_Stats("{}_{}".format(srcIP, srcProtocol), "{}_{}".format(dstIP , dstProtocol), timestamp, datagramSize, i)
+
+        #
+        # MIstat =  np.zeros((3*len(self.Lambdas,)))
+        # for i in range(len(self.Lambdas)):
+        #     MIstat[(i*3):((i+1)*3)] = self.HT_MI.update_get_1D_Stats("{}_{}".format(srcMAC,srcIP), timestamp, datagramSize, i)
+        #
+        # # Host-Host BW: Stats on the dual traffic behavior between srcIP and dstIP
+        # HHstat =  np.zeros((7*len(self.Lambdas,)))
+        # for i in range(len(self.Lambdas)):
+        #     HHstat[(i*7):((i+1)*7)] = self.HT_H.update_get_1D2D_Stats(srcIP, dstIP,timestamp,datagramSize,i)
+        # # Host-Host Jitter:
+        # HHstat_jit =  np.zeros((3*len(self.Lambdas,)))
+        # for i in range(len(self.Lambdas)):
+        #     HHstat_jit[(i*3):((i+1)*3)] = self.HT_jit.update_get_1D_Stats("{}_{}".format(srcIP,dstIP), timestamp, 0,i,isTypeDiff=True)
+        #
+        # # Host-Host BW: Stats on the dual traffic behavior between srcIP and dstIP
+        # HpHpstat =  np.zeros((7*len(self.Lambdas,)))
+        # if srcProtocol == 'arp':
+        #     for i in range(len(self.Lambdas)):
+        #         HpHpstat[(i*7):((i+1)*7)] = self.HT_Hp.update_get_1D2D_Stats(srcMAC, dstMAC, timestamp, datagramSize, i)
+        # else:  # some other protocol (e.g. TCP/UDP)
+        #     for i in range(len(self.Lambdas)):
+        #         HpHpstat[(i*7):((i+1)*7)] = self.HT_Hp.update_get_1D2D_Stats("{}_{}".format(srcIP, srcProtocol), "{}_{}".format(dstIP , dstProtocol), timestamp, datagramSize, i)
 
         self.num_updated+=1
 
         #clean our records every 100 updates
-        if self.num_updated%100==0:
+        if self.num_updated%self.clean_up_round==0:
+
             self.HT_MI.cleanOutOldRecords(self.cutoffWeight, timestamp)
             self.HT_H.cleanOutOldRecords(self.cutoffWeight, timestamp)
             self.HT_jit.cleanOutOldRecords(self.cutoffWeight, timestamp)
             self.HT_Hp.cleanOutOldRecords(self.cutoffWeight, timestamp)
 
-        return np.concatenate((MIstat, HHstat, HHstat_jit, HpHpstat))  # concatenation of stats into one stat vector
+
+
+        return record
 
     def get_stats(self, IPtype, srcMAC, dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, t1, frame_len=None, Lambda=1):
         """get stats of a packet, framelen not needed"""

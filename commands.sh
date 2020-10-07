@@ -1,1 +1,0 @@
-sudo docker run --gpus all -it -p 0.0.0.0:6006:6006 --rm -v ~/IDS2-CIC:/deepo/IDS2-CIC -v ~/TrafficManipulator:/deepo/TrafficManipulator -v ~/Kitsune-py:/deepo/Kitsune-py -v /etc/localtime:/etc/localtime:ro khe429/deepo:latest bash

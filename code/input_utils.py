@@ -482,9 +482,15 @@ class DataReader:
         counts_file.close()
 
         # draw distributions of each attribute for all data
-        axes = self.dataframe.hist(figsize=(50, 50))
 
-        plt.savefig("../data/{}/stats/hist_all.png".format(self.dataset_name))
+        self.dataframe.loc[self.dataframe[self.label_col]==1].hist(figsize=(25,25),log=True,alpha=0.5)
+        plt.savefig("../data/{}/stats/hist_normal.png".format(self.dataset_name))
+
+        self.dataframe.loc[self.dataframe[self.label_col]==0].hist(figsize=(25,25),log=True,alpha=0.5)
+        plt.savefig("../data/{}/stats/hist_flooding.png".format(self.dataset_name))
+
+
+
 
     def write_to_csv(self):
         """writes train, val and test data to csv file. This is a expensive operation.
@@ -576,6 +582,7 @@ class DataReader:
 
         num_classes = all_data[self.label_col].nunique()
 
+        self.num_classes=num_classes
         # # remove negative and nan values
         # all_data[all_data < 0] = np.nan
         # all_data = all_data.fillna(0)

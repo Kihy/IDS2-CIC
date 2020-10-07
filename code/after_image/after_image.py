@@ -28,6 +28,7 @@ class IncStat1D:
 
 
     def insert(self, v, t=0):  # v is a scalar, t is v's arrival the timestamp
+        # print("last t", self.lastTimestamp)
         # isTypeDiff= traffic jitter
         if self.isTypeDiff:
             dif = t - self.lastTimestamp
@@ -48,6 +49,7 @@ class IncStat1D:
         timeDiff = timestamp - self.lastTimestamp
         if timeDiff > 0:
             factor = np.power(2,  (-self.l * timeDiff))
+
             self.ls = self.ls * factor
             self.ss = self.ss * factor
             self.w = self.w * factor
@@ -88,7 +90,7 @@ class IncStat2D:
 
 
     def __repr__(self):
-        return pformat(self.get_stats1())
+        return "{}, {} : ".format(self.incStats[0].name,self.incStats[1].name)+pformat(self.get_stats2())
 
     #other_incS_decay is the decay factor of the other incstat
     # ID: the stream ID which produced (v,t)
@@ -99,7 +101,7 @@ class IncStat2D:
         elif ID == self.incStats[1].name:
             inc = 1
         else:
-            print("update_cov ID error")
+            print("update_cov ID error:", ID)
             return ## error
 
         # Decay other incStat, assuming this incstat is already decayed in 1d
@@ -182,9 +184,11 @@ class IncStatDB:
         return header
 
     # Registers a new stream. init_time: init lastTimestamp of the incStat
-    def register(self,ID,lambda_index,init_time=0,isTypeDiff=False):
+    def register(self,ID,lambda_index,init_time=None,isTypeDiff=False):
         # not in our db
         if ID not in self.stat1d[lambda_index]:
+            if init_time is None:
+                return None
             if self.num_entries + 1 > self.limit:
                 raise LookupError(
                     'Adding Entry:\n' + key + '\nwould exceed incStat 1D limit of ' + str(
@@ -221,7 +225,7 @@ class IncStatDB:
         return inc_cov.get_stats2()
 
     # Registers covariance tracking for two streams, registers missing streams
-    def register_cov(self,ID1,ID2,lambda_index,init_time=0,isTypeDiff=False):
+    def register_cov(self,ID1,ID2,lambda_index,init_time=None,isTypeDiff=False):
 
         # Lookup both streams
         incS1 = self.register(ID1,lambda_index,init_time,isTypeDiff)
@@ -235,6 +239,8 @@ class IncStatDB:
 
         else:
             # Link incStats
+            if init_time is None:
+                return None
             inc_cov = IncStat2D(incS1,incS2,init_time)
             self.stat2d[lambda_index][(ID1,ID2)]=inc_cov
             incS1.add_cov(ID2)
@@ -249,12 +255,14 @@ class IncStatDB:
         return ["radius","magnitude","covariance","pcc"]
     #cleans out records that have a weight less than the cutoff.
     #returns number of removed records.
-    def cleanOutOldRecords(self, cutoffWeight, curTime):
+    def cleanOutOldRecords(self, cutoffWeight, curTime, verbose=False):
         n = 0
         for i in range(len(self.lambdas)):
             for key, inc_stat in dict(self.stat1d[i]).items():
                 inc_stat.processDecay(curTime)
                 if inc_stat.weight() < cutoffWeight:
+                    if verbose and inc_stat.name=="192.168.100.5_23470":
+                        print("cleaning ",inc_stat)
                     # remove all links
                     for other_is in inc_stat.covs:
                         try:

@@ -16,6 +16,9 @@ IDS*/*
 models/*
 ku_http_flooding/*
 code/__pycache__/*
+ku_dataset/*
+kitsune_dataset/*
+code/logs/*
 
 # C extensions
 *.so

@@ -1,7 +1,7 @@
 import csv
 import json
 import sys
-
+from sklearn.metrics import mean_squared_error
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -18,6 +18,38 @@ from sklearn import preprocessing
 
 matplotlib.use('Agg')
 
+def create_autoencoder_pattern(model, input_feature):
+    loss_object = tf.keras.losses.MeanSquaredError()
+    with tf.GradientTape() as tape:
+        tape.watch(input_feature)
+        prediction = model(input_feature)
+        loss = loss_object(input_feature, prediction)
+
+    # Get the gradients of the loss w.r.t to the input image.
+    gradient = tape.gradient(loss, input_feature)
+    # Get the sign of the gradients to create the perturbation
+    signed_grad = tf.sign(gradient)
+    return signed_grad, np.abs(gradient)
+
+def adversarial_sample_ae(model, input_feature):
+
+    loss_object = tf.keras.losses.MeanSquaredError()
+    adv_x=input_feature
+    count=0
+    rmse=loss_object(adv_x, model(adv_x))
+
+    while rmse>0.1 and count< 1000:
+        sign, magnitude = create_autoencoder_pattern(model, tf.convert_to_tensor(input_feature))
+        mask = adv_x == 0
+        magnitude=np.ma.masked_array(magnitude, mask=mask)
+        strongest_index=magnitude.argmax()
+        adv_x[0][strongest_index] -= adv_x[0][strongest_index]*0.1*sign[0][strongest_index]
+        count+=1
+        rmse=loss_object(adv_x, model(adv_x))
+        # if count>520:
+        #     print(magnitude)
+        # print("count: {}, rmse: {}".format(count,rmse))
+    return adv_x
 
 def find_theta(metadata, percent_theta, fixed=[]):
     """
@@ -362,3 +394,24 @@ def draw_perturbation(ori, adv, output_file_name, field_names):
     plt.yticks(np.arange(0, 1.1, 0.1))
     plt.ylim(0, 1.1)
     f.savefig(output_file_name)
+
+
+if __name__ == '__main__':
+    features=[[1.915256162464416079e+01,2.000000000000000568e+02,0.000000000000000000e+00,1.984792566408835057e+01,1.999999999998176179e+02,2.063461579382419586e-08,2.080399595160168147e+01,1.999723160279728518e+02,3.103383093635784462e+00,2.415809596558893645e+03,1.977538001844734197e+02,2.546373985730388085e+02,6.511922154797476651e+03,1.977945174402764223e+02,2.514785067714692559e+02,1.915256162464416079e+01,2.000000000000000568e+02,0.000000000000000000e+00,3.487542780011128343e+03,2.575064004198315502e+02,3.583560144424815380e-02,0.000000000000000000e+00,1.984792566408835057e+01,1.999999999998176179e+02,2.063461579382419586e-08,3.352545647791808733e+03,2.593038276318127373e+02,8.483370583813504284e-01,1.019959425246314879e+02,2.080399595160168147e+01,1.999723160279728518e+02,3.103383093635784462e+00,3.760847756728969671e+03,2.558071571633972781e+02,1.301849239806803205e+01,1.205036484995891666e-01,2.415809596558893645e+03,1.977538001844733913e+02,2.546373985730388085e+02,1.605154586397471348e+03,2.111798061313541268e+02,1.599875635644368410e+00,2.518453916215805406e-03,6.511922154797478470e+03,1.977945174402763655e+02,2.514785067714692559e+02,8.771465931251524353e+02,2.089524805195362660e+02,6.403647190349308183e+00,1.393007751134688055e-02,1.915256162464416079e+01,5.567468506146893148e-01,6.886576634559165910e+00,1.984792566408835057e+01,5.825298535871317185e-01,7.193484126539214429e+00,2.080399595160168147e+01,6.026334415900700403e-01,7.432413933648584603e+00,2.415809596558893645e+03,6.139165629257020869e-03,6.961251988960387438e-02,6.511922154797476651e+03,2.768781697154371665e-03,2.593594755024272377e-02,1.097351794748506038e+01,2.000000000000000000e+02,0.000000000000000000e+00,0.000000000000000000e+00,2.000000000000000000e+02,0.000000000000000000e+00,0.000000000000000000e+00,1.098409573897681213e+01,1.999999999999466809e+02,6.039044819772243500e-09,6.039044819772243500e-09,1.999999999999466809e+02,0.000000000000000000e+00,0.000000000000000000e+00,1.102911490972858388e+01,1.999915042540189631e+02,9.538266239105723798e-01,9.538266239105723798e-01,1.999915042540189631e+02,0.000000000000000000e+00,0.000000000000000000e+00,4.136041972997104494e+02,1.978534278620882674e+02,2.451308279904333176e+02,2.451308279904333176e+02,1.978534278620882674e+02,0.000000000000000000e+00,0.000000000000000000e+00,1.102199491582856353e+03,1.978611815970103578e+02,2.458266481364262290e+02,2.458266481364262290e+02,1.978611815970103578e+02,0.000000000000000000e+00,0.000000000000000000e+00]
+]
+
+    model=tf.keras.models.load_model("../models/surrogate_ae_video.h5")
+    max_val=np.genfromtxt("max.csv",delimiter=",")
+    min_val=np.genfromtxt("min.csv",delimiter=",")
+    features=(features - min_val) / (max_val - min_val)
+    features=features.astype(np.float32)
+
+    print(features)
+    loss_object = tf.keras.losses.MeanSquaredError()
+    recon=model(features)
+    print(recon)
+    rmse=mean_squared_error(features, recon)
+
+    print("original RMSE:", rmse)
+    adv_x=adversarial_sample_ae(model, features)
+    print(adv_x)

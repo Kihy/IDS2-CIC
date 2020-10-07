@@ -23,44 +23,44 @@ class TestStringMethods(unittest.TestCase):
 
     def test_roll_back(self):
         pcap_path="../../TrafficManipulator/example/test.pcap"
-        feature_extractor=FE(pcap_path)
+        feature_extractor=FE(pcap_path, parse_type="scapy")
 
         #update both nstat with features
 
         features, packet = feature_extractor.get_next_vector()
         while features == []:
             features, packet = feature_extractor.get_next_vector()
-        feature_extractor.nstat.updateGetStats(*features)
-        feature_extractor.dummy_nstat.updateGetStats(*features)
+
+        feature1 =feature_extractor.nstat.updateGetStats(*features)
+
+        # check if behaviour is the same
+        db=feature_extractor.nstat.get_records(*features)
+        dummy_db=copy.deepcopy(db)
+
+
+        f1=feature_extractor.nstat.update_dummy_db(0, '3c:33:00:98:ee:fd', '40:8d:5c:4b:99:14', '192.168.2.110', '23', '192.168.2.107', '57206', 1540450874.471256, 70,dummy_db)
+
+        f2=feature_extractor.nstat.updateGetStats(0, '3c:33:00:98:ee:fd', '40:8d:5c:4b:99:14', '192.168.2.110', '23', '192.168.2.107', '57206', 1540450874.471256, 70 )
+
+        assert (f1==f2).all()
+
+        db=feature_extractor.nstat.get_records(*features)
+        dummy_db=copy.deepcopy(db)
 
 
         # simulate adding adversarial crafted packets
-        after_craft=feature_extractor.dummy_nstat.updateGetStats(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', 'arp', '192.168.2.152', 'arp', 1540450873.46, 70)
-        after_craft=feature_extractor.dummy_nstat.updateGetStats(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', 'arp', '192.168.2.152', 'arp', 1540450873.47, 60)
-        after_craft=feature_extractor.dummy_nstat.updateGetStats(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', 'arp', '192.168.2.152', 'arp', 1540450873.48, 80)
-        # nstat and dummy_nstat should not be the same
-        assert feature_extractor.dummy_nstat.num_updated != feature_extractor.nstat.num_updated
+        feature_extractor.nstat.update_dummy_db(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', '23', '192.168.2.152', '57206', 1540450873.46, 70 ,dummy_db)
+        feature_extractor.nstat.update_dummy_db(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', '23', '192.168.2.152', '57206', 1540450873.46, 70 ,dummy_db)
+        feature=feature_extractor.nstat.update_dummy_db(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', '23', '192.168.2.152', '57206', 1540450873.46, 70 ,dummy_db)
 
-        #roll back dummy_nstat
-        feature_extractor.roll_back()
+        # nstat and dummy_nstat should not be the same
+        assert (feature1 != feature).any()
+
+        db2=feature_extractor.nstat.get_records(*features)
         # should be the same
-        assert feature_extractor.dummy_nstat.num_updated == feature_extractor.nstat.num_updated
+        assert db == db2
 
-        #get next vector
-        features, packet = feature_extractor.get_next_vector()
-        while features == []:
-            features, packet = feature_extractor.get_next_vector()
 
-        true_stat=feature_extractor.nstat.updateGetStats(*features)
-        assert feature_extractor.dummy_nstat.num_updated != feature_extractor.nstat.num_updated
-        feature_extractor.dummy_nstat.updateGetStats(*features)
-
-        # simulate adding adversarial crafted packets
-        after_craft=feature_extractor.dummy_nstat.updateGetStats(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', 'arp', '192.168.2.152', 'arp', 1540450873.46, 70)
-        after_craft=feature_extractor.dummy_nstat.updateGetStats(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', 'arp', '192.168.2.152', 'arp', 1540450873.47, 60)
-        after_craft=feature_extractor.dummy_nstat.updateGetStats(0, '3c:33:00:98:ee:fd', 'ff:ff:ff:ff:ff:ff', '192.168.2.110', 'arp', '192.168.2.152', 'arp', 1540450873.48, 80)
-        # nstat and dummy_nstat should not be the same
-        assert feature_extractor.dummy_nstat.num_updated != feature_extractor.nstat.num_updated
 
 
 
