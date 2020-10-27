@@ -69,9 +69,10 @@ def parse_kitsune(pcap_file, output_file_name, add_label=False, write_prob=1, co
     print("written:",written)
 
 if __name__ == '__main__':
-    # file_name="../ku_dataset/googlehome_arp_only"
-    # file_name="../ku_dataset/[OS & service detection]traffic_GoogleHome_av_only"
-    file_name="../experiment/traffic_shaping/scanning/autoencoder_1_10_3_pso0.5/adv/iter_0"
+    # file_name="../ku_dataset/flooding_attacker_only"
+    file_name="../ku_dataset/[OS & service detection]traffic_GoogleHome_av_only"
+    # file_name="../experiment/traffic_shaping/scanning/autoencoder_1_10_3_pso0.5/adv/iter_0"
+    # file_name="../ku_dataset/[OS & service detection]traffic_GoogleHome_replay"
     parse_kitsune(file_name+".pcap",file_name+".csv", False, parse_type="scapy")
     # parsing normal features
     # parse_kitsune("../ku_http_flooding/pcaps/[Normal]GoogleHome.pcap", "../ku_http_flooding/kitsune_features/[Normal]GoogleHome.csv", True)

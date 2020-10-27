@@ -39,7 +39,7 @@ class netStat:
     # HostLimit: no more that this many Host identifiers will be tracked
     # HostSimplexLimit: no more that this many outgoing channels from each host will be tracked (purged periodically)
     # Lambdas: a list of 'window sizes' (decay factors) to track for each stream. nan resolved to default [5,3,1,.1,.01]
-    def __init__(self, Lambdas = np.nan, HostLimit=255,HostSimplexLimit=1000):
+    def __init__(self, Lambdas = np.nan, HostLimit=255,HostSimplexLimit=1000, log_path=None):
         #Lambdas
         if np.isnan(Lambdas):
             self.Lambdas = [5,3,1,.1,.01]
@@ -65,7 +65,10 @@ class netStat:
         self.HT_H = af.IncStatDB("HT_H",limit=self.HostLimit) #Source Host BW Stats
         self.HT_Hp = af.IncStatDB("HT_Hp",limit=self.SessionLimit)#Source Host BW Stats
 
-        self.log_file=open("../experiment/ns_log_pso.csv","w")
+        if log_path is not None:
+            self.log_file=open(log_path,"w")
+        else:
+            self.log_file =None
 
     def getHT(self):
         return {"HT_jit":self.HT_jit,
@@ -208,7 +211,7 @@ class netStat:
                     db["HpHpstat_cov"][i]=inc_cov
                 db["HpHpstat_cov"][i].update_cov(srcMAC,datagramSize,timestamp)
 
-                record[(i*7)+65:((i+1)*7)+65]=db["HpHpstat"][i].all_stats_1D() + db["HpHpstat_cov"][i].get_stats2()
+                record[(i*7)+65:((i+1)*7)+65]=db["HpHpstat"][i][0].all_stats_1D() + db["HpHpstat_cov"][i].get_stats2()
             else:
 
                 if db["HpHpstat"][i][0] is None:
@@ -288,8 +291,8 @@ class netStat:
         #     Hstat[(i*3):((i+1)*3)] = self.HT_H.update_get_1D_Stats(srcIP, timestamp, datagramSize, self.Lambdas[i])
 
         #MAC.IP: Stats on src MAC-IP relationships
-
-        self.log_file.write("{}, {}, {}, {}, {}, {}, {}, {}, {}\n".format( IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize))
+        if self.log_file is not None:
+            self.log_file.write("{}, {}, {}, {}, {}, {}, {}, {}, {}\n".format( IPtype, srcMAC,dstMAC, srcIP, srcProtocol, dstIP, dstProtocol, timestamp, datagramSize))
 
         self.prev_pkt_time=timestamp
         record=np.zeros(len(self.getNetStatHeaders()))

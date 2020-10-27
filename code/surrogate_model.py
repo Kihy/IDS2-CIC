@@ -14,15 +14,13 @@ class AnomalyDetector(Model):
     def __init__(self):
         super(AnomalyDetector, self).__init__()
         self.encoder = tf.keras.Sequential([
-          layers.Dense(64, activation="relu"),
           layers.Dense(32, activation="relu"),
-          layers.Dense(16, activation="relu"),
-          layers.Dense(8, activation="relu")])
+          layers.Dense(8, activation="relu"),
+          layers.Dense(2, activation="relu")])
 
         self.decoder = tf.keras.Sequential([
-          layers.Dense(16, activation="relu"),
+          layers.Dense(4, activation="relu"),
           layers.Dense(32, activation="relu"),
-          layers.Dense(64, activation="relu"),
           layers.Dense(100, activation="sigmoid")])
 
     def call(self, x):
@@ -76,18 +74,16 @@ def train():
 
     tf.saved_model.save(autoencoder, "../models/surrogate_ae.h5")
 
-def eval():
-    autoencoder=tf.keras.models.load_model("../models/surrogate_ae.h5")
+def eval_surrogate(path, model_path, threshold=None, out_path=None, ignore_index=0):
+    autoencoder=tf.keras.models.load_model(model_path)
     # path="../ku_http_flooding/kitsune_features/[HTTP_Flooding]GoogleHome_thread_800_origin.csv"
     # path="../kitsune_dataset/wiretap_malicious_hostonly.csv"
     # path="../ku_dataset/[OS & service detection]traffic_GoogleHome_av_only.csv"
-    path="../experiment/traffic_shaping/scanning/autoencoder_1_10_3_pso0.5/csv/iter_0.csv"
-    # path="../ku_http_flooding/kitsune_features/[Normal]GoogleHome.csv"
+    # path="../experiment/traffic_shaping/scanning/autoencoder_1_10_3_pso0.5/csv/iter_0.csv"
 
     dataframe = pd.read_csv(path,header=0)
-    init_len=14400
 
-    raw_data=dataframe.values[init_len:]
+    raw_data=dataframe.values[ignore_index:]
 
 
     if raw_data.shape[1]==101:
@@ -106,8 +102,11 @@ def eval():
     data = (data - min_val) / (max_val - min_val+1e-6)
 
 
+    if out_path==None:
+        out_image=path[:-4]+"_ae_rmse.png"
+    else:
+        out_image=out_path
 
-    out_image=path[:-4]+"_ae_rmse.png"
     counter=0
     input_file=open(path, "r")
     input_file.readline()
@@ -129,35 +128,44 @@ def eval():
 
         # print(train_loss)
         rmse_array=np.concatenate((rmse_array,train_loss))
-        print(train_loss)
         counter+=fv.shape[0]
         tbar.update(1)
 
         # feature_vector=input_file.readline()
 
+    if threshold==None:
     # benignSample = np.log(rmse_array)
     # mean=np.mean(benignSample)
     # std= np.std(benignSample)
     # threshold=np.exp(mean+3*std)
     # print("mean {}, std {}, threshold {}".format(mean, std, threshold))
-    threshold = 0.12
+        threshold=max(rmse_array)
+        print(threshold)
+    # threshold = 0.12
     # mean -3.496385573778823, std 0.5348295180179533
+
+    else:
+        print(np.where(rmse_array>threshold))
+        num_over=(rmse_array>threshold).sum()
+
 
 
 
     max_index=np.argmax(rmse_array)
     max_rmse=rmse_array[max_index]
-    plt.figure(figsize=(20,10))
+    plt.figure(figsize=(10,5))
     plt.scatter(range(counter),rmse_array,s=0.1)
     plt.axhline(y=threshold, color='r', linestyle='-')
     plt.yscale("log")
-    plt.title("Anomaly Scores from surrogate's Execution Phase")
-    plt.annotate("{}, {}".format(max_rmse,max_index), (max_index, max_rmse))
+    plt.title("Anomaly Scores from imposter's Execution Phase")
+    # plt.annotate("{}, {}".format(max_rmse,max_index), (max_index, max_rmse))
     plt.ylabel("RMSE (log scaled)")
     plt.xlabel("packet index")
+    plt.tight_layout()
     plt.savefig(out_image)
     print("plot path:", out_image)
 
 if __name__ == '__main__':
     # train()
-    eval()
+    # eval( "../ku_http_flooding/kitsune_features/[Normal]GoogleHome.csv","../models/surrogate_ae.h5")
+    eval_surrogate("../ku_dataset/[OS & service detection]traffic_GoogleHome_av_only.csv","../models/surrogate_ae.h5",threshold=0.17)

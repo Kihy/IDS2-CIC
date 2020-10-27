@@ -54,7 +54,7 @@ def train_normal():
     # plt.yscale("log")
     # plt.savefig(out_image)
 
-def eval(path, model_path ,threshold=None, ignore_index=-1, out_image=None):
+def eval(path, model_path ,threshold=None, ignore_index=-1, out_image=None, meta_file=None):
     # path = "../ku_http_flooding/kitsune_features/[HTTP_Flooding]GoogleHome_thread_800_origin.csv" #the pcap, pcapng, or tsv file to process.
     # path = "../ku_http_flooding/kitsune_features/[Normal]GoogleHome.csv" #the pcap, pcapng, or tsv file to process.
     # path = "../experiment/traffic_shaping/normal_800.csv" #the pcap, pcapng, or tsv file to process.
@@ -67,6 +67,18 @@ def eval(path, model_path ,threshold=None, ignore_index=-1, out_image=None):
     if out_image==None:
         out_image=path[:-4]+"_kitsune_rmse.png"
 
+    if meta_file is not None:
+        meta=open(meta_file, "r")
+        meta.readline()
+        meta_row=meta.readline()
+        has_meta=True
+        pos_craft=0
+        pos_mal=0
+    else:
+        has_meta= False
+        pos=0
+
+
     counter=0
     input_file=open(path, "r")
     input_file.readline()
@@ -75,10 +87,15 @@ def eval(path, model_path ,threshold=None, ignore_index=-1, out_image=None):
     while feature_vector is not '':
         if counter < ignore_index:
             feature_vector=input_file.readline()
+
+            if meta_file is not None:
+                meta_row=meta.readline()
+
             counter+=1
             continue
 
         fv=feature_vector.rstrip().split(",")
+
         if len(fv)==101:
             index=fv[-1]
             fv=fv[:-1]
@@ -91,6 +108,23 @@ def eval(path, model_path ,threshold=None, ignore_index=-1, out_image=None):
             print(counter)
 
         feature_vector=input_file.readline()
+
+        if rmse>threshold:
+            if has_meta:
+                comment=meta_row.rstrip().split(",")[-1]
+                if comment=="craft":
+                    pos_craft+=1
+                elif comment=="malicious":
+                    pos_mal+=1
+                else:
+                    print(meta_row)
+                    raise Exception
+
+            else:
+                pos+=1
+
+        if has_meta:
+            meta_row=meta.readline()
 
 
     if threshold==None:
@@ -105,26 +139,32 @@ def eval(path, model_path ,threshold=None, ignore_index=-1, out_image=None):
 
     max_rmse= max(rmse_array)
     max_index=np.argmax(rmse_array)
-    plt.figure(figsize=(20,10))
+    plt.figure(figsize=(10,5))
     plt.scatter(range(len(rmse_array)),rmse_array,s=0.1)
-    plt.annotate("{}, {}".format(max_rmse,max_index), (max_index, max_rmse))
+    # plt.annotate("{}, {}".format(max_rmse,max_index), (max_index, max_rmse))
     plt.axhline(y=threshold, color='r', linestyle='-')
     plt.yscale("log")
     plt.title("Anomaly Scores from Kitsune's Execution Phase")
     plt.ylabel("RMSE (log scaled)")
     plt.xlabel("packet index")
+    plt.tight_layout()
     plt.savefig(out_image)
     print("plot path:", out_image)
-
+    if has_meta:
+        return pos_mal, pos_craft
+    else:
+        return pos
 
 if __name__ == '__main__':
     # train_normal()
     # path = "../kitsune_dataset/wiretap_normal_hostonly.csv"
     # # path = "../kitsune_dataset/wiretap_normal.csv"
     # eval(path)
-    # paths = ["../ku_dataset/googlehome_arp_only.csv"]
-    paths=["../experiment/traffic_shaping/scanning/autoencoder_1_10_3_pso0.5/csv/iter_0.csv"]
+    # paths = ["../ku_dataset/flooding_attacker_only.csv"]
+    paths=["../ku_dataset/[OS & service detection]traffic_GoogleHome_av_only.csv"]
+    # paths=["../experiment/traffic_shaping/scanning/autoencoder_1_10_3_pso0.5/csv/iter_0.csv"]
     # paths = ["../experiment/traffic_shaping/scanning/kitsune_1_10_3_pso0.5/csv/iter_0.csv"]
     model_path="../models/kitsune.pkl"
     for path in paths:
-        eval(path, model_path, threshold=0.54)
+        pos=eval(path, model_path, threshold=0.54)
+        print(pos)

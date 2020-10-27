@@ -18,7 +18,7 @@ import pickle
 # If wireshark is installed (tshark) it is used to parse (it's faster), otherwise, scapy is used (much slower).
 # If wireshark is used then a tsv file (parsed version of the pcap) will be made -which you can use as your input next time
 class FE:
-    def __init__(self,file_path, parse_type, limit=None, nstat=None, dummy_nstat=None, force_tsv=True):
+    def __init__(self,file_path, parse_type, limit=None, nstat=None, dummy_nstat=None, force_tsv=True, log_file=None):
         self.path = file_path
         self.limit = limit
         self.parse_type = None #unknown
@@ -52,7 +52,7 @@ class FE:
         if nstat is not None:
             self.nstat=nstat
         else:
-            self.nstat = ns.netStat(np.nan, self.maxHost, self.maxSess)
+            self.nstat = ns.netStat(np.nan, self.maxHost, self.maxSess, log_path=log_file)
 
         # if dummy_nstat is not None:
         #     self.dummy_nstat=dummy_nstat

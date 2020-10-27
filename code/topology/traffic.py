@@ -85,7 +85,6 @@ def plot_contour(pos_history,canvas=None,title="Trajectory",mark=None,designer=N
 
         # last particle is global best
         colours=["black"  for i in range(n_particles//2)]+["red" for i in range(n_particles//2)]
-
         # Put scatter skeleton
         plot = ax.scatter(x=[0 for i in range(n_particles)], y=[0 for i in range(n_particles)], c=colours, alpha=0.6, **kwargs)
         # Do animation
@@ -424,5 +423,5 @@ class Traffic(Topology):
         temp_position[:,swarm.discrete_index:]=np.rint(temp_position[:,swarm.discrete_index:])
 
         position = temp_position
-        
+
         return position
