@@ -108,7 +108,7 @@ torchvision==0.4.0a0+6c7189f
 traitlets==4.3.2
 typing==3.7.4
 typing-extensions==3.6.6
-urllib3==1.25.3
+urllib3==1.25.8
 wcwidth==0.1.7
 Werkzeug==0.15.5
 wrapt==1.11.2
