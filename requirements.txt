@@ -96,7 +96,7 @@ tensorboard==2.1.0
 tensorflow==2.1.0
 tensorflow-estimator==2.1.0
 tensorflow-estimator-2.0-preview==1.14.0.dev2019080600
-tensorflow-gpu==2.0.0b1
+tensorflow-gpu==2.9.3
 tensorflow-probability==0.7.0
 termcolor==1.1.0
 tf-estimator-nightly==1.14.0.dev2019060501
